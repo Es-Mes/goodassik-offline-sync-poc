@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  # Local Database (SQLite - no container needed, file-based)
+  
+  local-api:
+    build: ./local-api
+    container_name: local-api
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./local-storage:/app/storage
+      - ./local-api:/app
+      - /app/node_modules
+      - local-db-data:/app/data
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - CLOUD_API_URL=http://cloud-api:3002
+    depends_on:
+      - cloud-db
+    networks:
+      - poc-network
+
+  sync-worker:
+    build: ./sync-worker
+    container_name: sync-worker
+    volumes:
+      - ./local-storage:/app/storage
+      - ./sync-worker:/app
+      - /app/node_modules
+      - local-db-data:/app/data
+    environment:
+      - NODE_ENV=development
+      - LOCAL_API_URL=http://local-api:3001
+      - CLOUD_API_URL=http://cloud-api:3002
+      - SYNC_INTERVAL=30000
+    depends_on:
+      - local-api
+      - cloud-api
+    networks:
+      - poc-network
+
+  cloud-api:
+    build: ./cloud-api
+    container_name: cloud-api
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./cloud-storage:/app/storage
+      - ./cloud-api:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=3002
+      - POSTGRES_HOST=cloud-db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=cloud_scans_db
+      - POSTGRES_USER=clouduser
+      - POSTGRES_PASSWORD=cloudpass123
+    depends_on:
+      - cloud-db
+    networks:
+      - poc-network
+
+  cloud-db:
+    image: postgres:15-alpine
+    container_name: cloud-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=cloud_scans_db
+      - POSTGRES_USER=clouduser
+      - POSTGRES_PASSWORD=cloudpass123
+    volumes:
+      - cloud-db-data:/var/lib/postgresql/data
+    networks:
+      - poc-network
+
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - REACT_APP_LOCAL_API_URL=http://localhost:3001
+    depends_on:
+      - local-api
+    networks:
+      - poc-network
+
+volumes:
+  cloud-db-data:
+  local-db-data:
+
+networks:
+  poc-network:
+    driver: bridge
