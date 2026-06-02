@@ -5,30 +5,33 @@ const DB_PATH = path.join(__dirname, '../../data/local.db');
 let db = null;
 
 function getDatabase() {
-    if (!db) {
-        db = new Database(DB_PATH, { verbose: console.log });
-    }
-    return db;
+  if (!db) {
+    db = new Database(DB_PATH, { verbose: console.log });
+  }
+  return db;
 }
 
 function initializeDatabase() {
-    const db = getDatabase();
+  const db = getDatabase();
 
-    // Create ExamScans table
-    db.exec(`
+  // Create ExamScans table
+  db.exec(`
     CREATE TABLE IF NOT EXISTS ExamScans (
       Id TEXT PRIMARY KEY,
       StudentId TEXT NOT NULL,
       ExamId TEXT NOT NULL,
       ImagePath TEXT NOT NULL,
+      Grade INTEGER,
+      Comments TEXT,
+      LastModifiedAt TEXT NOT NULL,
       CreatedAt TEXT NOT NULL,
       SyncStatus TEXT DEFAULT 'Pending',
       CHECK(SyncStatus IN ('Pending', 'Syncing', 'Synced', 'Failed'))
     )
   `);
 
-    // Create SyncOutbox table
-    db.exec(`
+  // Create SyncOutbox table
+  db.exec(`
     CREATE TABLE IF NOT EXISTS SyncOutbox (
       Id TEXT PRIMARY KEY,
       EntityType TEXT NOT NULL,
@@ -39,15 +42,15 @@ function initializeDatabase() {
       LastError TEXT,
       CreatedAt TEXT NOT NULL,
       SyncedAt TEXT,
-      CHECK(Status IN ('Pending', 'InProgress', 'Synced', 'Failed')),
+      CHECK(Status IN ('Pending', 'InProgress', 'Synced', 'Failed', 'Overridden', 'Skipped')),
       CHECK(Action IN ('Create', 'Update', 'Delete'))
     )
   `);
 
-    console.log('✅ Local database initialized');
+  console.log('✅ Local database initialized');
 }
 
 module.exports = {
-    getDatabase,
-    initializeDatabase
+  getDatabase,
+  initializeDatabase
 };

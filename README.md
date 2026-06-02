@@ -1,14 +1,18 @@
-# 🚀 Offline-First Scan Sync POC
+# � Offline-First Bi-Directional Sync POC
 
 ## סקירה כללית
 
-פרויקט POC (Proof of Concept) המדגים מערכת offline-first לניהול סריקות מבחנים עם יכולות סנכרון אוטומטי לענן.
+פרויקט POC (Proof of Concept) המדגים מערכת **offline-first** עם **סנכרון דו-כיווני** לניהול סריקות מבחנים.
 
-המערכת תומכת בשני מצבים:
-- **אונליין** - נתונים נשמרים מקומית ומסתנכרנים מיידית לענן
-- **אופליין** - נתונים נשמרים מקומית ומסתנכרנים אוטומטית כשהחיבור חוזר
+### תכונות עיקריות:
+- ✅ **סנכרון דו-כיווני** - עדכונים זורמים בשני הכיוונים (Local ⇄ Cloud)
+- ✅ **Conflict Resolution** - פתרון קונפליקטים אוטומטי מבוסס timestamps
+- ✅ **אונליין/אופליין** - פעולה מלאה ללא תלות בחיבור לענן
+- ✅ **Real-time Updates** - ממשק משתמש עם רענון אוטומטי כל 5 שניות
+- ✅ **GZIP Compression** - דחיסה של קבצים (60-70% חיסכון ב-bandwidth)
+- ✅ **Grade & Comments** - ניהול ציונים והערות עם sync מלא
 
-## 🏗️ ארכיטקטורה
+## 🏗️ ארכיטקטורה - Bi-Directional Sync
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -17,23 +21,28 @@
 │                                                               │
 │  ┌──────────┐      ┌──────────────┐      ┌─────────────┐   │
 │  │ Frontend │─────►│  Local API   │      │ Sync Worker │   │
-│  │ (React)  │      │  (Node.js)   │◄─────│  (Node.js)  │   │
+│  │ (React)  │  ⬆️  │  (Node.js)   │◄────►│  (Node.js)  │   │
+│  │Side-by-  │  ⬇️  │              │      │   PULL &    │   │
+│  │  Side    │      │   SQLite     │      │   PUSH      │   │
 │  └──────────┘      └──────────────┘      └─────────────┘   │
 │                           │                      │           │
 │                           ▼                      │           │
-│                    ┌──────────┐                  │           │
-│                    │ SQLite   │                  │           │
-│                    │    DB    │                  │           │
-│                    └──────────┘                  │           │
-│                           │                      │           │
-│                           ▼                      ▼           │
-│                    ┌────────────────────────────────┐        │
-│                    │    Local Storage (Files)      │        │
-│                    └────────────────────────────────┘        │
+│                  ┌─────────────────┐             │           │
+│                  │  ExamScans      │             │           │
+│                  │  - Grade        │             │           │
+│                  │  - Comments     │             │           │
+│                  │  - LastModified │             │           │
+│                  └─────────────────┘             │           │
+│                  ┌─────────────────┐             │           │
+│                  │  SyncOutbox     │             │           │
+│                  │  (Push Queue)   │◄────────────┘           │
+│                  └─────────────────┘                         │
 │                                                               │
 └───────────────────────────────┬───────────────────────────────┘
                                 │
-                         Sync (גזיפ + העלאה)
+                         📤 PUSH (Local→Cloud)
+                         📥 PULL (Cloud→Local)
+                         🔄 Conflict Resolution
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -43,11 +52,43 @@
 │                    ┌──────────────┐                          │
 │                    │  Cloud API   │                          │
 │                    │  (Node.js)   │                          │
+│                    │  PostgreSQL  │                          │
 │                    └──────────────┘                          │
 │                           │                                   │
 │         ┌─────────────────┴─────────────────┐                │
 │         │                                   │                │
 │         ▼                                   ▼                │
+│  ┌─────────────────┐              ┌─────────────────┐       │
+│  │  ExamScans      │              │CloudSyncOutbox  │       │
+│  │  - Grade        │              │ (Pull Queue)    │       │
+│  │  - Comments     │              │                 │       │
+│  │  - LastModified │              └─────────────────┘       │
+│  └─────────────────┘                                         │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+```
+
+### תהליך הסנכרון הדו-כיווני:
+
+**1. PUSH (Local → Cloud):**
+- עדכון מקומי → `SyncOutbox` (Pending)
+- Sync Worker שולח לענן ← GZIP compression
+- בענן: שמירה ב-`ExamScans`
+- עדכון סטטוס: `Synced`
+
+**2. PULL (Cloud → Local):**
+- עדכון בענן → `CloudSyncOutbox` (Pending)
+- Sync Worker מושך מהענן
+- **Conflict Resolution** - השוואת `LastModifiedAt`
+- עדכון מקומי + סטטוס: `Synced` / `Overridden` / `Skipped`
+
+**3. Conflict Resolution:**
+```
+IF cloud.LastModifiedAt > local.LastModifiedAt:
+    → Apply cloud update (Status: Synced/Overridden)
+ELSE:
+    → Keep local version (Status: Skipped)
+```
 │  ┌──────────┐                      ┌─────────────┐          │
 │  │PostgreSQL│                      │Cloud Storage│          │
 │  │    DB    │                      │   (Files)   │          │
@@ -150,7 +191,13 @@ cd goodassik-offline-sync-poc
 ```
 
 ### שלב 2: הרמת כל השירותים
+
+**⚠️ חשוב לפני העלאה ראשונה:**
 ```bash
+# מחיקת volumes ישנים (אם קיימים)
+docker-compose down -v
+
+# בנייה והעלאה מחדש
 docker-compose up --build
 ```
 
@@ -163,6 +210,11 @@ docker-compose up --build
 ### שלב 3: בדיקת הפעלה
 פתח דפדפן וגש ל: http://localhost:3000
 
+תראה ממשק עם:
+- 💻 **Local Panel** - סריקות מקומיות
+- ☁️ **Cloud Panel** - סריקות בענן
+- 📊 **Sync Status** - מצב סנכרון בזמן אמת
+
 ## 📋 שימוש במערכת
 
 ### 1. העלאת סריקה חדשה
@@ -173,34 +225,54 @@ docker-compose up --build
 3. בחר קובץ תמונה
 4. לחץ "שמור סריקה"
 
-הסריקה תישמר מיידית במסד הנתונים המקומי ותתווסף לתור הסנכרון.
+הסריקה תישמר מיידית ב-Local ותסתנכרן אוטומטית ל-Cloud תוך 30 שניות.
 
-### 2. מעקב אחר סטטוס סנכרון
+### 2. עדכון ציון והערות
+
+**מ-Local:**
+1. לחץ "ערוך" על כרטיס הסריקה ב-Local Panel
+2. הזן ציון (0-100) והערות
+3. לחץ "שמור"
+4. העדכון יסתנכרן ל-Cloud תוך 30 שניות
+
+**מ-Cloud:**
+1. לחץ "ערוך" על כרטיס הסריקה ב-Cloud Panel
+2. הזן ציון והערות
+3. לחץ "שמור"
+4. העדכון יורד ל-Local תוך 30 שניות
+
+### 3. זיהוי קונפליקטים
+
+כרטיסי סריקה מסומנים ב-⚠️ "קונפליקט" כאשר:
+- Grade או Comments שונים בין Local ל-Cloud
+- הסנכרון הבא יפתור את הקונפליקט לפי `LastModifiedAt`
+
+### 4. מעקב אחר סטטוס סנכרון
 
 הממשק מציג בזמן אמת:
-- **ממתין לסנכרון** - מספר פריטים שממתינים
-- **מסתנכרן** - פריטים בתהליך העברה
-- **סונכרן** - פריטים שהועברו בהצלחה
-- **נכשל** - פריטים שנכשלו בסנכרון
+- **ממתין** - עדכונים שממתינים לסנכרון
+- **מסתנכרן** - עדכונים בתהליך
+- **סונכרן** - הושלמו בהצלחה
+- **נכשל** - נכשלו (ינסו שוב)
 
-### 3. דימוי מצב אופליין
+### 5. דימוי מצב אופליין
 
 להפעלת מצב אופליין (ללא חיבור לענן):
 ```bash
 docker stop cloud-api
 ```
 
-כעת כל סריקה חדשה:
-- תישמר מקומית בהצלחה
-- תישאר בסטטוס "Pending"
-- ה-Sync Worker ימשיך לנסות כל 30 שניות
+כעת:
+- סריקות חדשות נשמרות מקומית
+- עדכונים נשארים ב-"Pending"
+- Cloud Panel יציג "אין סריקות / ענן לא זמין"
 
 להחזרת החיבור:
 ```bash
 docker start cloud-api
 ```
 
-תוך 30 שניות הסנכרון יחזור והנתונים יועלו אוטומטית!
+תוך 30 שניות הסנכרון יחזור והכל יתעדכן אוטומטית! 🚀
 
 ## 🔍 API Endpoints
 
@@ -234,6 +306,22 @@ curl -X POST http://localhost:3001/local/scans \
 קבלת כל הסריקות
 ```bash
 curl http://localhost:3001/local/scans
+```
+
+#### PATCH /local/scans/:id
+עדכון ציון והערות (יוצר SyncOutbox entry)
+```bash
+curl -X PATCH http://localhost:3001/local/scans/SCAN_UUID \
+  -H "Content-Type: application/json" \
+  -d '{"grade": 95, "comments": "Excellent work!"}'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Scan updated successfully"
+}
 ```
 
 #### GET /local/sync/status
@@ -279,6 +367,55 @@ curl -X POST http://localhost:3002/api/sync/scans \
 curl http://localhost:3002/api/sync/scans
 ```
 
+#### PATCH /api/sync/scans/:id
+עדכון ציון והערות בענן (יוצר CloudSyncOutbox entry)
+```bash
+curl -X PATCH http://localhost:3002/api/sync/scans/SCAN_UUID \
+  -H "Content-Type: application/json" \
+  -d '{"grade": 88, "comments": "Good job"}'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Scan updated and queued for sync"
+}
+```
+
+#### GET /api/sync/updates
+קבלת עדכונים ממתינים מהענן (משמש את ה-Sync Worker)
+```bash
+curl http://localhost:3002/api/sync/updates
+```
+
+**Response:**
+```json
+[
+  {
+    "Id": "update-uuid",
+    "EntityId": "scan-uuid",
+    "Grade": 95,
+    "Comments": "Excellent!",
+    "LastModifiedAt": "2026-06-02T10:30:00Z",
+    "Status": "Pending"
+  }
+]
+```
+
+#### POST /api/sync/updates/:id/complete
+סימון עדכון כהושלם (משמש את ה-Sync Worker)
+```bash
+curl -X POST http://localhost:3002/api/sync/updates/UPDATE_UUID/complete \
+  -H "Content-Type: application/json" \
+  -d '{"status": "Synced"}'
+```
+
+**אפשרויות Status:**
+- `Synced` - עדכון הוחל בהצלחה
+- `Overridden` - הוחל למרות שהיה conflict (cloud newer)
+- `Skipped` - דולג (local newer or not found)
+
 ## 🗄️ מבנה מסדי נתונים
 
 ### Local DB (SQLite)
@@ -290,23 +427,54 @@ curl http://localhost:3002/api/sync/scans
 | StudentId | TEXT | מזהה תלמיד |
 | ExamId | TEXT | מזהה מבחן |
 | ImagePath | TEXT | נתיב לקובץ |
+| Grade | INTEGER | ציון (0-100) ⭐ חדש |
+| Comments | TEXT | הערות על הסריקה ⭐ חדש |
+| LastModifiedAt | TEXT | תאריך עדכון אחרון ⭐ חדש |
 | CreatedAt | TEXT | תאריך יצירה (ISO) |
 | SyncStatus | TEXT | Pending/Syncing/Synced/Failed |
 
-**SyncOutbox**
+**SyncOutbox** (Push Queue)
 | שדה | סוג | תיאור |
 |------|------|--------|
 | Id | TEXT | מזהה ייחודי |
 | EntityType | TEXT | סוג הישות (ExamScan) |
 | EntityId | TEXT | מזהה הישות |
 | Action | TEXT | Create/Update/Delete |
-| Status | TEXT | Pending/InProgress/Synced/Failed |
+| Status | TEXT | Pending/InProgress/Synced/Failed/Overridden/Skipped ⭐ |
 | RetryCount | INTEGER | מספר ניסיונות חוזרים |
 | LastError | TEXT | הודעת שגיאה אחרונה |
 | CreatedAt | TEXT | תאריך יצירה |
 | SyncedAt | TEXT | תאריך סנכרון |
 
 ### Cloud DB (PostgreSQL)
+
+**ExamScans**
+| שדה | סוג | תיאור |
+|------|------|--------|
+| Id | UUID | מזהה ייחודי |
+| StudentId | TEXT | מזהה תלמיד |
+| ExamId | TEXT | מזהה מבחן |
+| ImagePath | TEXT | נתיב לקובץ |
+| Grade | INTEGER | ציון (0-100) ⭐ חדש |
+| Comments | TEXT | הערות על הסריקה ⭐ חדש |
+| LastModifiedAt | TIMESTAMP | תאריך עדכון אחרון ⭐ חדש |
+| CreatedAt | TIMESTAMP | תאריך יצירה |
+
+**CloudSyncOutbox** (Pull Queue) ⭐ טבלה חדשה
+| שדה | סוג | תיאור |
+|------|------|--------|
+| Id | UUID | מזהה ייחודי |
+| EntityType | TEXT | סוג הישות (ExamScan) |
+| EntityId | UUID | מזהה הסריקה |
+| Action | TEXT | Update/Delete |
+| Status | TEXT | Pending/Synced/Overridden/Skipped |
+| Grade | INTEGER | הציון המעודכן |
+| Comments | TEXT | ההערות המעודכנות |
+| LastModifiedAt | TIMESTAMP | תאריך העדכון |
+| RetryCount | INTEGER | מספר ניסיונות |
+| LastError | TEXT | הודעת שגיאה |
+| CreatedAt | TIMESTAMP | תאריך יצירת העדכון |
+| SyncedAt | TIMESTAMP | תאריך השלמת הסנכרון |
 
 **ExamScans**
 | שדה | סוג | תיאור |
@@ -318,40 +486,90 @@ curl http://localhost:3002/api/sync/scans
 | CreatedAt | TIMESTAMP | תאריך יצירה |
 | SyncedAt | TIMESTAMP | תאריך סנכרון |
 
-## 🔄 תהליך הסנכרון
+## 🔄 תהליך הסנכרון הדו-כיווני
 
-### Flow מלא:
+### PUSH Flow (Local → Cloud):
 
 1. **שמירה מקומית**
-   - משתמש מעלה סריקה דרך Frontend
+   - משתמש מעלה סריקה / מעדכן ציון דרך Frontend
    - Local API שומר ב-SQLite + Local Storage
-   - נוצרת רשומה ב-SyncOutbox עם סטטוס "Pending"
+   - נוצרת רשומה ב-`SyncOutbox` עם סטטוס "Pending"
 
-2. **Sync Worker - polling**
+2. **Sync Worker - PUSH**
    - כל 30 שניות בודק אם Cloud API זמין
-   - מחפש רשומות Pending ב-SyncOutbox
+   - מחפש רשומות Pending ב-`SyncOutbox`
    
-3. **העברת קובץ**
-   - דחיסת הקובץ ב-GZIP (חיסכון בנפח העברה)
-   - העלאה ל-Cloud API עם multipart/form-data
-   - מחיקת קובץ דחוס זמני
+3. **העברת קובץ/עדכון**
+   - **Create**: דחיסת קובץ ב-GZIP → POST לענן
+   - **Update**: שליחת Grade/Comments → PATCH לענן
+   - מחיקת קבצים זמניים
 
 4. **עדכון סטטוס**
-   - הצלחה: SyncStatus → "Synced"
-   - כשלון: SyncStatus → "Failed", RetryCount++
+   - הצלחה: `Synced`
+   - כשלון: `Failed`, RetryCount++
 
-### מנגנון Retry
+---
 
-- **ניסיון חוזר**: כל 30 שניות
-- **אין מגבלת ניסיונות**: ימשיך עד ההצלחה
-- **שמירת שגיאות**: LastError מכיל את הסיבה לכשלון
-- **אין מחיקת נתונים**: Pending items נשארים עד סנכרון מוצלח
+### PULL Flow (Cloud → Local):
 
-### Idempotency
+1. **עדכון בענן**
+   - מישהו מעדכן ציון/הערות ב-Cloud API
+   - נוצרת רשומה ב-`CloudSyncOutbox` עם סטטוס "Pending"
 
-Cloud API בודק אם scanId כבר קיים במסד הנתונים:
-- אם קיים: מחזיר הצלחה (למנוע כפילויות)
-- אם לא: שומר את הנתונים
+2. **Sync Worker - PULL** 
+   - בכל סבב: `GET /api/sync/updates`
+   - מקבל רשימת עדכונים ממתינים
+
+3. **Conflict Resolution**
+   ```
+   עבור כל עדכון:
+     IF local scan not found:
+       → Skip (status: Skipped)
+     
+     IF local has pending changes in SyncOutbox:
+       IF cloud.LastModifiedAt > local.LastModifiedAt:
+         → Apply cloud update (status: Overridden)
+       ELSE:
+         → Keep local (status: Skipped)
+     
+     ELSE (no pending local changes):
+       IF cloud.LastModifiedAt > local.LastModifiedAt:
+         → Apply cloud update (status: Synced)
+       ELSE:
+         → Skip (status: Skipped)
+   ```
+
+4. **עדכון מקומי והשלמה**
+   - עדכון `ExamScans` לוקאלי
+   - `POST /api/sync/updates/:id/complete` עם הסטטוס
+
+---
+
+### מנגנון Retry ו-Idempotency
+
+**Retry:**
+- ניסיון חוזר כל 30 שניות
+- אין מגבלת ניסיונות - ימשיך עד ההצלחה
+- שמירת שגיאות ב-`LastError`
+
+**Idempotency:**
+- **PUSH**: Cloud API בודק אם `scanId` קיים (למנוע כפילויות)
+- **PULL**: אם `completeCloudUpdate` נכשל, בסבב הבא פשוט יחזור על העדכון (safe!)
+- כל פעולה **idempotent** - ניתן לבצע שוב ללא בעיה
+
+---
+
+### Last Write Wins Strategy
+
+המערכת משתמשת ב-**timestamp-based conflict resolution**:
+- `LastModifiedAt` קובע מי "מנצח"
+- **היתרון**: פשוט ומובן
+- **החיסרון**: עדכון ישן יכול לדרוס עדכון חדש אם Clock Skew קיים
+
+**לייצור**: כדאי לשקול:
+- Vector Clocks
+- Version numbers
+- User prompt למקרי conflict
 
 ## 🐛 בעיות נפוצות ופתרונות
 
@@ -768,7 +986,91 @@ app.get('/images/:id', (req, res) => {
 
 ---
 
-### 📝 נקודות נוספות לבדיקה
+### � אופטימיזציות אופציונליות לסנכרון
+
+#### 1. מניעת עדכונים כפולים (Idempotency Check)
+
+**מצב נוכחי ב-POC:**
+- Sync Worker מושך עדכונים מהענן בכל סבב (30 שניות)
+- אם `completeCloudUpdate()` נכשל (אובדן חיבור), העדכון יחזור בסבב הבא
+- העדכון יבוצע שוב **אבל זה בטוח** - idempotent operation ✅
+
+**דוגמת תרחיש:**
+```
+סבב 1: 
+  ✅ Pull update (Grade=95) 
+  ✅ Update local DB
+  ❌ completeCloudUpdate() נכשל - אין גישה לענן
+
+סבב 2:
+  ✅ Pull same update שוב
+  ✅ Update local DB שוב (אותו ערך = אין בעיה)
+  ✅ completeCloudUpdate() הצליח הפעם
+```
+
+**שיפור אופציונלי (לא הוסף ב-POC):**
+```javascript
+// בדיקה מקדימה להימנע מעדכון מיותר:
+const cloudTime = new Date(update.LastModifiedAt).getTime();
+const localTime = new Date(localScan.LastModifiedAt).getTime();
+
+if (cloudTime === localTime && 
+    localScan.Grade === update.Grade && 
+    localScan.Comments === update.Comments) {
+    // Already synced - just mark as complete
+    await completeCloudUpdate(update.Id, 'Synced');
+    continue; // Skip DB update
+}
+```
+
+**יתרונות:**
+- ✅ פחות עדכוני DB מיותרים
+- ✅ פחות לוגים
+
+**חסרונות:**
+- ❌ לוגיקה נוספת
+- ❌ התועלת מינימלית (DB update מהיר ממילא)
+
+**המלצה:** לא נחוץ למרוב המקרים. הוסף רק אם יש load גבוה מאוד.
+
+---
+
+#### 2. שדה SyncedAt בטבלת ExamScans
+
+**מצב נוכחי ב-POC:**
+```sql
+ExamScans:
+  - CreatedAt       -- תאריך יצירה מקורי
+  - LastModifiedAt  -- תאריך עדכון אחרון (Grade/Comments)
+```
+
+**תאריך הסנכרון נמצא רק ב:**
+- `SyncOutbox.SyncedAt` (Local → Cloud)
+- `CloudSyncOutbox.SyncedAt` (Cloud → Local)
+
+**שיפור אופציונלי (לא הוסף ב-POC):**
+```sql
+ExamScans:
+  - CreatedAt       -- תאריך יצירה מקורי
+  - LastModifiedAt  -- תאריך עדכון אחרון
+  - SyncedAt        -- מתי סונכרן לצד השני לאחרונה ⭐ חדש
+```
+
+**יתרונות:**
+- ✅ מידע סנכרון זמין ישירות בטבלה הראשית
+- ✅ קל לזהות סריקות שטרם סונכרנו
+- ✅ שאילתות פשוטות יותר למעקב
+
+**חסרונות:**
+- ❌ מורכבות נוספת
+- ❌ צריך לעדכן גם ExamScans וגם Outbox
+- ❌ דופליקציה של מידע
+
+**המלצה:** הוסף רק אם צריך UI מתקדם שמציג "Last Synced" בצד כל רשומה.
+
+---
+
+### �📝 נקודות נוספות לבדיקה
 
 *(מקום לנקודות עתידיות)*
 

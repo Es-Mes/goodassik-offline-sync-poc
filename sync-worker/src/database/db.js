@@ -73,10 +73,21 @@ function updateScanSyncStatus(scanId, status) {
     update.run(status, scanId);
 }
 
+function updateLocalScan(scanId, grade, comments, lastModifiedAt) {
+    const db = getDatabase();
+    const update = db.prepare(`
+        UPDATE ExamScans 
+        SET Grade = ?, Comments = ?, LastModifiedAt = ?
+        WHERE Id = ?
+    `);
+    update.run(grade, comments, lastModifiedAt, scanId);
+}
+
 module.exports = {
     getDatabase,
     getPendingSyncEntries,
     updateSyncOutboxStatus,
     getScanById,
-    updateScanSyncStatus
+    updateScanSyncStatus,
+    updateLocalScan
 };

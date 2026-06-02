@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 const { getPool } = require('../database/db');
 
 const router = express.Router();
@@ -56,10 +57,11 @@ router.post('/scans', upload.single('image'), async (req, res) => {
         }
 
         // Insert into cloud database
+        const now = new Date().toISOString();
         await pool.query(
-            `INSERT INTO ExamScans (Id, StudentId, ExamId, ImagePath, CreatedAt)
-       VALUES ($1, $2, $3, $4, $5)`,
-            [scanId, studentId, examId, imagePath, createdAt]
+            `INSERT INTO ExamScans (Id, StudentId, ExamId, ImagePath, Grade, Comments, LastModifiedAt, CreatedAt)
+       VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6)`,
+            [scanId, studentId, examId, imagePath, now, createdAt]
         );
 
         console.log(`✅ Synced scan ${scanId} to cloud`);
@@ -85,7 +87,7 @@ router.get('/scans', async (req, res) => {
 
     try {
         const result = await pool.query(
-            'SELECT * FROM ExamScans ORDER BY SyncedAt DESC'
+            'SELECT * FROM ExamScans ORDER BY CreatedAt DESC'
         );
 
         res.json({ scans: result.rows });
@@ -117,6 +119,113 @@ router.get('/scans/:id', async (req, res) => {
         console.error('Error fetching scan:', error);
         res.status(500).json({
             error: 'Failed to fetch scan',
+            details: error.message
+        });
+    }
+});
+
+// PATCH /api/sync/scans/:id - Update grade and comments in cloud
+router.patch('/scans/:id', async (req, res) => {
+    const pool = getPool();
+
+    try {
+        const { grade, comments } = req.body;
+        const scanId = req.params.id;
+
+        // Check if scan exists
+        const existingResult = await pool.query(
+            'SELECT * FROM ExamScans WHERE Id = $1',
+            [scanId]
+        );
+
+        if (existingResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Scan not found' });
+        }
+
+        const scan = existingResult.rows[0];
+        const now = new Date();
+
+        // Update scan
+        await pool.query(
+            `UPDATE ExamScans 
+             SET Grade = $1, Comments = $2, LastModifiedAt = $3
+             WHERE Id = $4`,
+            [
+                grade !== undefined ? grade : scan.grade,
+                comments !== undefined ? comments : scan.comments,
+                now,
+                scanId
+            ]
+        );
+
+        // Create CloudSyncOutbox entry
+        await pool.query(
+            `INSERT INTO CloudSyncOutbox (Id, EntityType, EntityId, Action, Status, Grade, Comments, LastModifiedAt, CreatedAt)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [uuidv4(), 'ExamScan', scanId, 'Update', 'Pending', grade, comments, now, now]
+        );
+
+        const updatedResult = await pool.query(
+            'SELECT * FROM ExamScans WHERE Id = $1',
+            [scanId]
+        );
+
+        console.log(`✅ Updated scan ${scanId} in cloud, queued for pull`);
+
+        res.json({
+            success: true,
+            scan: updatedResult.rows[0]
+        });
+    } catch (error) {
+        console.error('Error updating scan:', error);
+        res.status(500).json({
+            error: 'Failed to update scan',
+            details: error.message
+        });
+    }
+});
+
+// GET /api/sync/updates - Get pending updates to pull to local
+router.get('/updates', async (req, res) => {
+    const pool = getPool();
+
+    try {
+        const result = await pool.query(
+            `SELECT * FROM CloudSyncOutbox 
+             WHERE Status = 'Pending'
+             ORDER BY CreatedAt ASC`
+        );
+
+        res.json({ updates: result.rows });
+    } catch (error) {
+        console.error('Error fetching updates:', error);
+        res.status(500).json({
+            error: 'Failed to fetch updates',
+            details: error.message
+        });
+    }
+});
+
+// POST /api/sync/updates/:id/complete - Mark update as synced
+router.post('/updates/:id/complete', async (req, res) => {
+    const pool = getPool();
+
+    try {
+        const { status } = req.body; // 'Synced', 'Overridden', 'Skipped'
+        const updateId = req.params.id;
+
+        await pool.query(
+            `UPDATE CloudSyncOutbox 
+             SET Status = $1, SyncedAt = $2
+             WHERE Id = $3`,
+            [status, new Date(), updateId]
+        );
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error completing update:', error);
+        res.status(500).json({
+            error: 'Failed to complete update',
             details: error.message
         });
     }

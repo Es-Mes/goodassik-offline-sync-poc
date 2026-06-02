@@ -39,15 +39,15 @@ router.post('/', upload.single('image'), async (req, res) => {
         const db = getDatabase();
         const scanId = uuidv4();
         const imagePath = `/storage/scans/${req.file.filename}`;
-        const createdAt = new Date().toISOString();
+        const now = new Date().toISOString();
 
         // Insert into ExamScans
         const insertScan = db.prepare(`
-      INSERT INTO ExamScans (Id, StudentId, ExamId, ImagePath, CreatedAt, SyncStatus)
-      VALUES (?, ?, ?, ?, ?, 'Pending')
+      INSERT INTO ExamScans (Id, StudentId, ExamId, ImagePath, Grade, Comments, LastModifiedAt, CreatedAt, SyncStatus)
+      VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, 'Pending')
     `);
 
-        insertScan.run(scanId, studentId, examId, imagePath, createdAt);
+        insertScan.run(scanId, studentId, examId, imagePath, now, now);
 
         // Create sync outbox entry
         createSyncOutboxEntry('ExamScan', scanId, 'Create');
@@ -96,6 +96,44 @@ router.get('/:id', (req, res) => {
     } catch (error) {
         console.error('Error fetching scan:', error);
         res.status(500).json({ error: 'Failed to fetch scan', details: error.message });
+    }
+});
+
+// PATCH /local/scans/:id - Update grade and comments
+router.patch('/:id', (req, res) => {
+    try {
+        const { grade, comments } = req.body;
+        const scanId = req.params.id;
+
+        const db = getDatabase();
+        const scan = db.prepare('SELECT * FROM ExamScans WHERE Id = ?').get(scanId);
+
+        if (!scan) {
+            return res.status(404).json({ error: 'Scan not found' });
+        }
+
+        const now = new Date().toISOString();
+
+        // Update scan
+        const update = db.prepare(`
+            UPDATE ExamScans 
+            SET Grade = ?, Comments = ?, LastModifiedAt = ?
+            WHERE Id = ?
+        `);
+        update.run(grade !== undefined ? grade : scan.Grade, comments !== undefined ? comments : scan.Comments, now, scanId);
+
+        // Create sync outbox entry for update
+        createSyncOutboxEntry('ExamScan', scanId, 'Update');
+
+        const updatedScan = db.prepare('SELECT * FROM ExamScans WHERE Id = ?').get(scanId);
+
+        res.json({
+            success: true,
+            scan: updatedScan
+        });
+    } catch (error) {
+        console.error('Error updating scan:', error);
+        res.status(500).json({ error: 'Failed to update scan', details: error.message });
     }
 });
 

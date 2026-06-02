@@ -95,7 +95,37 @@ async function syncScanToCloud(scan, outboxEntry) {
     }
 }
 
+async function fetchCloudUpdates() {
+    try {
+        const response = await axios.get(
+            `${CLOUD_API_URL}/api/sync/updates`,
+            { timeout: 10000 }
+        );
+        // API returns { updates: [...] }, extract the array
+        const data = response.data;
+        return Array.isArray(data?.updates) ? data.updates : [];
+    } catch (error) {
+        console.error('Error fetching cloud updates:', error.message);
+        return []; // Return empty array instead of throwing
+    }
+}
+
+async function completeCloudUpdate(updateId, status) {
+    try {
+        await axios.post(
+            `${CLOUD_API_URL}/api/sync/updates/${updateId}/complete`,
+            { status },
+            { timeout: 5000 }
+        );
+    } catch (error) {
+        console.error(`Error completing cloud update ${updateId}:`, error.message);
+        throw error;
+    }
+}
+
 module.exports = {
     checkCloudConnection,
-    syncScanToCloud
+    syncScanToCloud,
+    fetchCloudUpdates,
+    completeCloudUpdate
 };

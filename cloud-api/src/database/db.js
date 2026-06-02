@@ -22,6 +22,9 @@ async function initializeDatabase(retries = 10, delay = 2000) {
             StudentId VARCHAR(255) NOT NULL,
             ExamId VARCHAR(255) NOT NULL,
             ImagePath TEXT NOT NULL,
+            Grade INTEGER,
+            Comments TEXT,
+            LastModifiedAt TIMESTAMP NOT NULL,
             CreatedAt TIMESTAMP NOT NULL,
             SyncedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
           )
@@ -36,6 +39,31 @@ async function initializeDatabase(retries = 10, delay = 2000) {
                 await client.query(`
           CREATE INDEX IF NOT EXISTS idx_exam_scans_exam 
           ON ExamScans(ExamId)
+        `);
+
+                // Create CloudSyncOutbox table
+                await client.query(`
+          CREATE TABLE IF NOT EXISTS CloudSyncOutbox (
+            Id VARCHAR(255) PRIMARY KEY,
+            EntityType VARCHAR(255) NOT NULL,
+            EntityId VARCHAR(255) NOT NULL,
+            Action VARCHAR(50) NOT NULL,
+            Status VARCHAR(50) DEFAULT 'Pending',
+            Grade INTEGER,
+            Comments TEXT,
+            LastModifiedAt TIMESTAMP,
+            RetryCount INTEGER DEFAULT 0,
+            LastError TEXT,
+            CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            SyncedAt TIMESTAMP,
+            CHECK(Status IN ('Pending', 'InProgress', 'Synced', 'Failed', 'Overridden', 'Skipped')),
+            CHECK(Action IN ('Update'))
+          )
+        `);
+
+                await client.query(`
+          CREATE INDEX IF NOT EXISTS idx_cloud_sync_outbox_status 
+          ON CloudSyncOutbox(Status)
         `);
 
                 console.log('✅ Cloud database initialized');

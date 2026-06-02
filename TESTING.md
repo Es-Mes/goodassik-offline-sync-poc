@@ -1,4 +1,15 @@
-# 🧪 מדריך בדיקות מלא - POC Offline Sync
+# 🧪 מדריך בדיקות מלא - Bi-Directional Sync POC
+
+## 🎯 מטרת המסמך
+
+מדריך מקיף לבדיקת כל תכונות המערכת:
+- ✅ סנכרון חד-כיווני (Local → Cloud)
+- ✅ סנכרון דו-כיווני (Local ⇄ Cloud)
+- ✅ Conflict Resolution
+- ✅ מצבי Offline/Online
+- ✅ עדכון ציונים והערות
+
+---
 
 ## 🎯 סקריפטים עזר לבדיקות
 
@@ -290,7 +301,215 @@ Get-ChildItem "cloud-storage/scans" | Measure-Object -Property Length -Sum
 
 ---
 
-## 🛠️ תיקון בעיות נפוצות
+## � בדיקות Bi-Directional Sync
+
+### 🧪 בדיקה 4: עדכון ציון ב-Local
+
+**מטרה:** לוודא שעדכון בצד Local מסתנכרן ל-Cloud
+
+**שלבים:**
+
+1. **העלה סריקה:**
+   - דרך UI: תלמיד `111222`, מבחן `BIO-2024-Q1`
+   - המתן לסנכרון (30 שניות)
+
+2. **עדכן ציון ב-Local:**
+   ```powershell
+   # קבל את ה-ID של הסריקה
+   $scans = curl http://localhost:3001/local/scans | ConvertFrom-Json
+   $scanId = $scans.scans[0].Id
+   
+   # עדכן ציון
+   curl -X PATCH "http://localhost:3001/local/scans/$scanId" `
+     -H "Content-Type: application/json" `
+     -d '{"grade": 95, "comments": "Excellent work!"}'
+   ```
+
+3. **בדוק SyncOutbox:**
+   ```powershell
+   curl http://localhost:3001/local/sync/outbox
+   ```
+   תראה entry חדש עם `Action: "Update"`
+
+4. **המתן 30 שניות - בדוק בענן:**
+   ```powershell
+   curl http://localhost:3002/api/sync/scans
+   ```
+   הציון יהיה 95 והערה "Excellent work!"
+
+5. **בדוק ב-UI:**
+   - Local Panel: Grade=95
+   - Cloud Panel: Grade=95 (אחרי רענון)
+
+**תוצאה מצופה:**
+- ✅ עדכון Local נשמר מיד
+- ✅ SyncOutbox נוצר אוטומטית
+- ✅ תוך 30 שניות מסתנכרן ל-Cloud
+- ✅ שני הצדדים זהים
+
+---
+
+### 🧪 בדיקה 5: עדכון ציון ב-Cloud
+
+**מטרה:** לוודא שעדכון בצד Cloud מסתנכרן ל-Local
+
+**שלבים:**
+
+1. **קבל ID של סריקה מסונכרנת:**
+   ```powershell
+   $cloudScans = curl http://localhost:3002/api/sync/scans | ConvertFrom-Json
+   $scanId = $cloudScans.scans[0].id
+   ```
+
+2. **עדכן ציון ב-Cloud:**
+   ```powershell
+   curl -X PATCH "http://localhost:3002/api/sync/scans/$scanId" `
+     -H "Content-Type: application/json" `
+     -d '{"grade": 88, "comments": "Good job from cloud!"}'
+   ```
+
+3. **בדוק CloudSyncOutbox:**
+   ```powershell
+   curl http://localhost:3002/api/sync/updates
+   ```
+   תראה entry עם הציון החדש
+
+4. **המתן 30 שניות - בדוק ב-Local:**
+   ```powershell
+   curl http://localhost:3001/local/scans
+   ```
+   הציון יהיה 88 והערה "Good job from cloud!"
+
+5. **בדוק לוגים:**
+   ```
+   sync-worker  | 📥 Pulling 1 cloud updates...
+   sync-worker  | ✅ Applying cloud update for [scan-id]
+   ```
+
+**תוצאה מצופה:**
+- ✅ עדכון Cloud נשמר מיד
+- ✅ CloudSyncOutbox נוצר אוטומטית
+- ✅ תוך 30 שניות מורד ל-Local
+- ✅ שני הצדדים זהים
+
+---
+
+### 🧪 בדיקה 6: Conflict Resolution - Cloud Wins
+
+**מטרה:** לוודא שכשיש קונפליקט, הצד החדש יותר מנצח
+
+**שלבים:**
+
+1. **העלה סריקה והמתן לסנכרון**
+
+2. **עדכן ב-Local ראשון:**
+   ```powershell
+   curl -X PATCH "http://localhost:3001/local/scans/$scanId" `
+     -d '{"grade": 70, "comments": "From local at 10:00"}'
+   ```
+   
+3. **אל תחכה! מיד עדכן ב-Cloud:**
+   ```powershell
+   curl -X PATCH "http://localhost:3002/api/sync/scans/$scanId" `
+     -d '{"grade": 90, "comments": "From cloud at 10:01"}'
+   ```
+
+4. **המתן 30 שניות - בדוק לוגים:**
+   ```
+   sync-worker  | 📤 Syncing... (Push local first)
+   sync-worker  | 📥 Pulling... (Then pull cloud)
+   sync-worker  | ⚠️  Conflict detected for scan [id]
+   sync-worker  | 🔄 Cloud is newer, overriding local changes
+   ```
+
+5. **בדוק שני הצדדים:**
+   ```powershell
+   curl http://localhost:3001/local/scans
+   curl http://localhost:3002/api/sync/scans
+   ```
+   **שניהם יהיו:** Grade=90, Comments="From cloud at 10:01"
+
+**תוצאה מצופה:**
+- ✅ Cloud מנצח (LastModifiedAt חדש יותר)
+- ✅ Local מתעדכן ל-90
+- ✅ CloudSyncOutbox סטטוס: `Overridden`
+- ✅ אין איבוד מידע (הכל בלוגים)
+
+---
+
+### 🧪 בדיקה 7: Conflict Resolution - Local Wins
+
+**מטרה:** לוודא שאם Local חדש יותר, Cloud לא דורס אותו
+
+**שלבים:**
+
+1. **העלה סריקה והמתן לסנכרון**
+
+2. **עדכן ב-Cloud ראשון:**
+   ```powershell
+   curl -X PATCH "http://localhost:3002/api/sync/scans/$scanId" `
+     -d '{"grade": 80, "comments": "From cloud at 11:00"}'
+   ```
+
+3. **המתן 35 שניות (לאחר Pull)**
+
+4. **עכשיו עדכן ב-Local:**
+   ```powershell
+   curl -X PATCH "http://localhost:3001/local/scans/$scanId" `
+     -d '{"grade": 95, "comments": "From local at 11:02"}'
+   ```
+
+5. **המתן עוד 30 שניות - בדוק לוגים:**
+   ```
+   sync-worker  | 📥 Pulling cloud updates...
+   sync-worker  | ⏭️  Local is newer, skipping cloud update
+   ```
+
+6. **בדוק CloudSyncOutbox:**
+   ```powershell
+   curl http://localhost:3002/api/sync/updates
+   ```
+   תראה Status: `Skipped`
+
+**תוצאה מצופה:**
+- ✅ Local מנצח (LastModifiedAt חדש יותר)
+- ✅ Cloud לא דורס את Local
+- ✅ CloudSyncOutbox סטטוס: `Skipped`
+
+---
+
+### 🧪 בדיקה 8: זיהוי Conflict ב-UI
+
+**מטרה:** לראות סימון ויזואלי של קונפליקטים
+
+**שלבים:**
+
+1. **פתח UI:** http://localhost:3000
+
+2. **יצור קונפליקט:**
+   - עדכן ציון ב-Local (דרך UI): 75
+   - מיד עדכן ב-Cloud (דרך curl): 85
+   - **לפני** שהסנכרון מסתיים
+
+3. **בדוק ב-UI:**
+   - הכרטיס יסומן ב-⚠️ "קונפליקט"
+   - רקע צהוב
+   - תראה ערכים שונים: Local=75, Cloud=85
+
+4. **המתן 30 שניות:**
+   - הקונפליקט יפתר אוטומטית
+   - הסימון יעלם
+   - שני הצדדים יהיו זהים
+
+**תוצאה מצופה:**
+- ✅ UI מזהה קונפליקט בזמן אמת
+- ✅ סימון ויזואלי ברור
+- ✅ רזולושן אוטומטי
+- ✅ רענון אוטומטי
+
+---
+
+## �🛠️ תיקון בעיות נפוצות
 
 ### הסנכרון תקוע
 
@@ -336,6 +555,7 @@ docker-compose up --build
 
 ## 📝 Checklist לסיום בדיקות
 
+### בדיקות בסיסיות ✅
 - [ ] כל הקונטיינרים רצים (`docker-compose ps`)
 - [ ] UI נגיש ב-http://localhost:3000
 - [ ] העלאת סריקה במצב אונליין עובדת
@@ -343,6 +563,71 @@ docker-compose up --build
 - [ ] קובץ קיים ב-`local-storage/scans`
 - [ ] קובץ קיים ב-`cloud-storage/scans`
 - [ ] רשומה ב-Cloud DB
+
+### בדיקות Bi-Directional Sync ✅
+- [ ] עדכון ציון ב-Local מסתנכרן ל-Cloud
+- [ ] עדכון ציון ב-Cloud מסתנכרן ל-Local
+- [ ] Conflict Resolution - Cloud חדש יותר (Overridden)
+- [ ] Conflict Resolution - Local חדש יותר (Skipped)
+- [ ] UI מזהה קונפליקטים ויזואלית
+- [ ] CloudSyncOutbox עובד כמצופה
+- [ ] Pull logic רץ כל 30 שניות
+
+### בדיקות Offline/Online ✅
+- [ ] מצב Offline - סריקות נשמרות מקומית
+- [ ] מצב Offline - עדכונים נשארים Pending
+- [ ] חזרה Online - סנכרון אוטומטי
+- [ ] כמה סריקות Offline מסתנכרנות
+
+---
+
+## 🎓 טיפים לבדיקות
+
+### מעקב אחר סנכרון בזמן אמת
+
+```powershell
+# טרמינל 1: לוגים
+docker-compose logs -f sync-worker
+
+# טרמינל 2: פולינג סטטוס
+while ($true) {
+    curl http://localhost:3001/local/sync/status | ConvertFrom-Json | ConvertTo-Json
+    Start-Sleep 5
+}
+
+# טרמינל 3: בדיקות
+```
+
+### מחיקת נתונים בין בדיקות
+
+```powershell
+# מחיקה מלאה
+docker-compose down -v
+docker-compose up --build
+
+# מחיקת קבצים בלבד
+Remove-Item local-storage/scans/* -Force
+Remove-Item cloud-storage/scans/* -Force
+docker-compose restart
+```
+
+### דיבוג CloudSyncOutbox
+
+```powershell
+# קבל עדכונים ממתינים
+curl http://localhost:3002/api/sync/updates
+
+# סמן עדכון כהושלם ידנית
+curl -X POST "http://localhost:3002/api/sync/updates/UPDATE_ID/complete" `
+  -H "Content-Type: application/json" `
+  -d '{"status": "Synced"}'
+```
+
+---
+
+**בהצלחה! 🚀**
+
+*אם יש בעיות - בדוק את [README.md](README.md) או את הלוגים.*
 - [ ] במצב offline - סריקה נשמרת עם סטטוס Pending
 - [ ] כשהענן חוזר - סנכרון אוטומטי עובד
 - [ ] 20+ סריקות offline מסתנכרנות בהצלחה
