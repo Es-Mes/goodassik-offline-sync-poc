@@ -1,14 +1,28 @@
-const { Pool } = require('pg');
+// Use Mock database for tests, real PostgreSQL for production
+let pool;
 
-const pool = new Pool({
-    host: process.env.POSTGRES_HOST || 'localhost',
-    port: process.env.POSTGRES_PORT || 5432,
-    database: process.env.POSTGRES_DB || 'cloud_scans_db',
-    user: process.env.POSTGRES_USER || 'clouduser',
-    password: process.env.POSTGRES_PASSWORD || 'cloudpass123',
-});
+if (process.env.NODE_ENV === 'test') {
+    const { MockPool, initializeMockDatabase } = require('../../tests/db-mock');
+    pool = new MockPool();
+    initializeMockDatabase();
+} else {
+    const { Pool } = require('pg');
+    pool = new Pool({
+        host: process.env.POSTGRES_HOST || 'localhost',
+        port: process.env.POSTGRES_PORT || 5432,
+        database: process.env.POSTGRES_DB || 'cloud_scans_db',
+        user: process.env.POSTGRES_USER || 'clouduser',
+        password: process.env.POSTGRES_PASSWORD || 'cloudpass123',
+    });
+}
 
 async function initializeDatabase(retries = 10, delay = 2000) {
+    // In test mode, database is already initialized by db-mock.js
+    if (process.env.NODE_ENV === 'test') {
+        console.log('✅ Cloud database initialized (test mode)');
+        return;
+    }
+
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
             console.log(`⏳ Attempting to connect to PostgreSQL (attempt ${attempt}/${retries})...`);

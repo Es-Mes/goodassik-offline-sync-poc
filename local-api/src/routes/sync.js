@@ -32,7 +32,7 @@ router.get('/outbox', (req, res) => {
     try {
         const db = getDatabase();
         const entries = db.prepare('SELECT * FROM SyncOutbox ORDER BY CreatedAt DESC').all();
-        res.json({ entries });
+        res.json({ outbox: entries });
     } catch (error) {
         console.error('Error fetching outbox:', error);
         res.status(500).json({ error: 'Failed to fetch outbox', details: error.message });

@@ -7,9 +7,20 @@ const { getPool } = require('../database/db');
 const router = express.Router();
 
 // Configure multer for file uploads
+const uploadDir = process.env.NODE_ENV === 'test'
+    ? path.join(__dirname, '../../tests/test-uploads')
+    : '/app/storage/scans';
+
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, '/app/storage/scans');
+        // Create directory if it doesn't exist (for tests)
+        if (process.env.NODE_ENV === 'test') {
+            const fs = require('fs');
+            if (!fs.existsSync(uploadDir)) {
+                fs.mkdirSync(uploadDir, { recursive: true });
+            }
+        }
+        cb(null, uploadDir);
     },
     filename: (req, file, cb) => {
         // Keep the original filename sent from local API
@@ -143,7 +154,7 @@ router.patch('/scans/:id', async (req, res) => {
         }
 
         const scan = existingResult.rows[0];
-        const now = new Date();
+        const now = new Date().toISOString();
 
         // Update scan
         await pool.query(
@@ -211,15 +222,26 @@ router.post('/updates/:id/complete', async (req, res) => {
     const pool = getPool();
 
     try {
-        const { status } = req.body; // 'Synced', 'Overridden', 'Skipped'
+        const { status } = req.body; // 'Synced', 'Overridden', 'Skipped', 'Failed'
         const updateId = req.params.id;
 
-        await pool.query(
-            `UPDATE CloudSyncOutbox 
-             SET Status = $1, SyncedAt = $2
-             WHERE Id = $3`,
-            [status, new Date(), updateId]
-        );
+        if (status === 'Failed') {
+            // Mark as Failed with incremented retry count
+            await pool.query(
+                `UPDATE CloudSyncOutbox 
+                 SET Status = $1, RetryCount = RetryCount + 1
+                 WHERE Id = $2`,
+                [status, updateId]
+            );
+        } else {
+            // Mark as completed (Synced, Overridden, Skipped)
+            await pool.query(
+                `UPDATE CloudSyncOutbox 
+                 SET Status = $1, SyncedAt = $2
+                 WHERE Id = $3`,
+                [status, new Date().toISOString(), updateId]
+            );
+        }
 
         res.json({ success: true });
     } catch (error) {

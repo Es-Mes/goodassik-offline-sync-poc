@@ -3,7 +3,8 @@ const {
     updateSyncOutboxStatus,
     getScanById,
     updateScanSyncStatus,
-    updateLocalScan
+    updateLocalScan,
+    findPendingSyncEntryByEntityId
 } = require('./database/db');
 const {
     checkCloudConnection,
@@ -53,6 +54,13 @@ async function pullCloudUpdates() {
                         // Cloud is newer - override local
                         console.log(`🔄 Cloud is newer, overriding local changes for ${update.EntityId}`);
                         updateLocalScan(update.EntityId, update.Grade, update.Comments, update.LastModifiedAt);
+
+                        // Mark the local pending entry as Overridden
+                        const localEntry = findPendingSyncEntryByEntityId(update.EntityId);
+                        if (localEntry) {
+                            updateSyncOutboxStatus(localEntry.Id, 'Overridden');
+                        }
+
                         await completeCloudUpdate(update.Id, 'Overridden');
                     } else {
                         // Local is newer - skip cloud update
@@ -78,7 +86,12 @@ async function pullCloudUpdates() {
 
             } catch (error) {
                 console.error(`❌ Failed to apply update ${update.Id}:`, error.message);
-                // Don't mark as complete - will retry next cycle
+                // Mark cloud update as Failed so it can be retried
+                try {
+                    await completeCloudUpdate(update.Id, 'Failed');
+                } catch (completeError) {
+                    console.error(`❌ Failed to mark update ${update.Id} as Failed:`, completeError.message);
+                }
             }
         }
 
@@ -127,16 +140,27 @@ async function processSyncQueue() {
 
         for (const entry of pendingEntries) {
             try {
-                // Update status to InProgress
-                updateSyncOutboxStatus(entry.Id, 'InProgress');
-                updateScanSyncStatus(entry.EntityId, 'Syncing');
-
-                // Get the scan data
+                // Get the scan data first to check if entry is outdated
                 const scan = getScanById(entry.EntityId);
 
                 if (!scan) {
                     throw new Error(`Scan ${entry.EntityId} not found`);
                 }
+
+                // Check if this outbox entry is outdated (created before scan's last modification)
+                const outboxCreatedTime = new Date(entry.CreatedAt).getTime();
+                const scanModifiedTime = new Date(scan.LastModifiedAt || scan.CreatedAt).getTime();
+
+                if (outboxCreatedTime < scanModifiedTime) {
+                    // This entry is outdated - the scan was modified after this entry was created
+                    console.log(`⏭️  Skipping outdated entry ${entry.Id} for scan ${entry.EntityId}`);
+                    updateSyncOutboxStatus(entry.Id, 'Skipped');
+                    continue;
+                }
+
+                // Update status to InProgress
+                updateSyncOutboxStatus(entry.Id, 'InProgress');
+                updateScanSyncStatus(entry.EntityId, 'Syncing');
 
                 // Sync to cloud
                 await syncScanToCloud(scan, entry);

@@ -26,8 +26,11 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', service: 'local-api', timestamp: new Date().toISOString() });
 });
 
-app.listen(PORT, () => {
-    console.log(`🚀 Local API running on port ${PORT}`);
-});
+// Only start server if not in test mode
+if (process.env.NODE_ENV !== 'test') {
+    app.listen(PORT, () => {
+        console.log(`🚀 Local API running on port ${PORT}`);
+    });
+}
 
 module.exports = app;

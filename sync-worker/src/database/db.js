@@ -38,7 +38,7 @@ function getPendingSyncEntries() {
 function updateSyncOutboxStatus(outboxId, status, error = null) {
     const db = getDatabase();
 
-    if (status === 'Synced') {
+    if (status === 'Synced' || status === 'Overridden' || status === 'Skipped') {
         const update = db.prepare(`
       UPDATE SyncOutbox 
       SET Status = ?, SyncedAt = ?, LastError = NULL
@@ -83,11 +83,22 @@ function updateLocalScan(scanId, grade, comments, lastModifiedAt) {
     update.run(grade, comments, lastModifiedAt, scanId);
 }
 
+function findPendingSyncEntryByEntityId(entityId) {
+    const db = getDatabase();
+    return db.prepare(`
+        SELECT * FROM SyncOutbox 
+        WHERE EntityId = ? AND Status = 'Pending'
+        ORDER BY CreatedAt DESC
+        LIMIT 1
+    `).get(entityId);
+}
+
 module.exports = {
     getDatabase,
     getPendingSyncEntries,
     updateSyncOutboxStatus,
     getScanById,
     updateScanSyncStatus,
-    updateLocalScan
+    updateLocalScan,
+    findPendingSyncEntryByEntityId
 };

@@ -8,9 +8,18 @@ const { createSyncOutboxEntry } = require('../services/syncService');
 const router = express.Router();
 
 // Configure multer for file uploads
+const uploadDir = process.env.NODE_ENV === 'test'
+    ? path.join(__dirname, '../../test-uploads')
+    : '/app/storage/scans';
+
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, '/app/storage/scans');
+        // Create directory if it doesn't exist (for tests)
+        const fs = require('fs');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
     },
     filename: (req, file, cb) => {
         const uniqueName = `${Date.now()}-${uuidv4()}${path.extname(file.originalname)}`;
@@ -55,12 +64,13 @@ router.post('/', upload.single('image'), async (req, res) => {
         res.status(201).json({
             success: true,
             scan: {
-                id: scanId,
-                studentId,
-                examId,
-                imagePath,
-                createdAt,
-                syncStatus: 'Pending'
+                Id: scanId,
+                StudentId: studentId,
+                ExamId: examId,
+                ImagePath: imagePath,
+                CreatedAt: now,
+                LastModifiedAt: now,
+                SyncStatus: 'Pending'
             }
         });
 
