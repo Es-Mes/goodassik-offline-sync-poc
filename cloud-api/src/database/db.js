@@ -63,15 +63,19 @@ async function initializeDatabase(retries = 10, delay = 2000) {
             EntityId VARCHAR(255) NOT NULL,
             Action VARCHAR(50) NOT NULL,
             Status VARCHAR(50) DEFAULT 'Pending',
+            StudentId VARCHAR(255),
+            ExamId VARCHAR(255),
+            ImagePath TEXT,
             Grade INTEGER,
             Comments TEXT,
             LastModifiedAt TIMESTAMP,
+            EntityCreatedAt TIMESTAMP,
             RetryCount INTEGER DEFAULT 0,
             LastError TEXT,
             CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             SyncedAt TIMESTAMP,
             CHECK(Status IN ('Pending', 'InProgress', 'Synced', 'Failed', 'Overridden', 'Skipped')),
-            CHECK(Action IN ('Update'))
+            CHECK(Action IN ('Create', 'Update', 'Delete'))
           )
         `);
 

@@ -12,6 +12,7 @@ yarn-error.log*
 # Storage
 local-storage/scans/*
 cloud-storage/scans/*
+test-storage/
 !local-storage/scans/.gitkeep
 !cloud-storage/scans/.gitkeep
 
@@ -28,9 +29,9 @@ build/
 .next/
 
 # Test results and coverage
-test-results/
+# test-results/ - Now tracked for team visibility
 coverage/
-*.log
+# *.log - Now tracked for test results
 
 # IDE
 .vscode/
@@ -45,7 +46,7 @@ Thumbs.db
 
 # Logs
 logs/
-*.log
+# *.log - Now tracked for test results
 
 # Docker
 .dockerignore

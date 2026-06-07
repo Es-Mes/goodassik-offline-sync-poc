@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # Test Cloud Database (separate from production)
+  test-cloud-db:
+    image: postgres:15-alpine
+    container_name: test-cloud-db
+    ports:
+      - "5433:5432"  # Different port to avoid conflicts
+    environment:
+      - POSTGRES_DB=test_cloud_scans_db
+      - POSTGRES_USER=clouduser
+      - POSTGRES_PASSWORD=cloudpass123
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clouduser -d test_cloud_scans_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Test Local API
+  test-local-api:
+    build: ./local-api
+    container_name: test-local-api
+    ports:
+      - "3011:3001"  # Different port
+    volumes:
+      - ./test-storage:/app/storage
+      - test-local-db:/app/data
+    environment:
+      - NODE_ENV=integration-test
+      - PORT=3001
+      - CLOUD_API_URL=http://test-cloud-api:3002
+    networks:
+      - test-network
+
+  # Test Cloud API
+  test-cloud-api:
+    build: ./cloud-api
+    container_name: test-cloud-api
+    ports:
+      - "3012:3002"  # Different port
+    volumes:
+      - ./test-storage:/app/storage
+    environment:
+      - NODE_ENV=integration-test
+      - PORT=3002
+      - POSTGRES_HOST=test-cloud-db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=test_cloud_scans_db
+      - POSTGRES_USER=clouduser
+      - POSTGRES_PASSWORD=cloudpass123
+    depends_on:
+      test-cloud-db:
+        condition: service_healthy
+    networks:
+      - test-network
+
+  # Test Sync Worker - FASTER sync for tests (5 seconds)
+  test-sync-worker:
+    build: ./sync-worker
+    container_name: test-sync-worker
+    volumes:
+      - ./test-storage:/app/storage
+      - test-local-db:/app/data
+    environment:
+      - NODE_ENV=integration-test
+      - LOCAL_API_URL=http://test-local-api:3001
+      - CLOUD_API_URL=http://test-cloud-api:3002
+      - SYNC_INTERVAL=5000  # 5 seconds for faster tests!
+    depends_on:
+      - test-local-api
+      - test-cloud-api
+    networks:
+      - test-network
+
+volumes:
+  test-local-db:
+    name: test-local-db
+
+networks:
+  test-network:
+    name: test-network

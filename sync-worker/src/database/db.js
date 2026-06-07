@@ -75,12 +75,14 @@ function updateScanSyncStatus(scanId, status) {
 
 function updateLocalScan(scanId, grade, comments, lastModifiedAt) {
     const db = getDatabase();
+    console.log(`🔧 updateLocalScan called: scanId=${scanId}, grade=${grade}, comments="${comments}", lastModifiedAt=${lastModifiedAt}`);
     const update = db.prepare(`
         UPDATE ExamScans 
         SET Grade = ?, Comments = ?, LastModifiedAt = ?
         WHERE Id = ?
     `);
-    update.run(grade, comments, lastModifiedAt, scanId);
+    const result = update.run(grade, comments, lastModifiedAt, scanId);
+    console.log(`🔧 Update result: changes=${result.changes}`);
 }
 
 function findPendingSyncEntryByEntityId(entityId) {
@@ -93,6 +95,51 @@ function findPendingSyncEntryByEntityId(entityId) {
     `).get(entityId);
 }
 
+function createLocalScan(scanData) {
+    const db = getDatabase();
+    const insert = db.prepare(`
+        INSERT INTO ExamScans (
+            Id, StudentId, ExamId, ImagePath, Grade, Comments,
+            LastModifiedAt, CreatedAt, SyncStatus
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    insert.run(
+        scanData.Id,
+        scanData.StudentId,
+        scanData.ExamId,
+        scanData.ImagePath,
+        scanData.Grade || null,
+        scanData.Comments || null,
+        scanData.LastModifiedAt,
+        scanData.CreatedAt,
+        'Synced' // Set as Synced since it came from cloud
+    );
+}
+
+function deleteLocalScan(scanId) {
+    const db = getDatabase();
+
+    // Get scan info before deleting (for image cleanup)
+    const scan = getScanById(scanId);
+
+    if (scan) {
+        // Delete image file if exists
+        const fs = require('fs');
+        const path = require('path');
+        const imagePath = path.join('/app/data/images', path.basename(scan.ImagePath));
+
+        if (fs.existsSync(imagePath)) {
+            fs.unlinkSync(imagePath);
+            console.log(`🗑️  Deleted local image file: ${imagePath}`);
+        }
+    }
+
+    // Delete from database
+    const deleteStmt = db.prepare('DELETE FROM ExamScans WHERE Id = ?');
+    deleteStmt.run(scanId);
+}
+
 module.exports = {
     getDatabase,
     getPendingSyncEntries,
@@ -100,5 +147,7 @@ module.exports = {
     getScanById,
     updateScanSyncStatus,
     updateLocalScan,
-    findPendingSyncEntryByEntityId
+    findPendingSyncEntryByEntityId,
+    createLocalScan,
+    deleteLocalScan
 };

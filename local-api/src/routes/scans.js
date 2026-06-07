@@ -112,7 +112,12 @@ router.get('/:id', (req, res) => {
 // PATCH /local/scans/:id - Update grade and comments
 router.patch('/:id', (req, res) => {
     try {
-        const { grade, comments } = req.body;
+        // Support both PascalCase and lowercase for compatibility
+        const { grade, comments, Grade, Comments, lastModifiedAt, LastModifiedAt } = req.body;
+        const gradeValue = Grade !== undefined ? Grade : grade;
+        const commentsValue = Comments !== undefined ? Comments : comments;
+        const lastModifiedAtValue = LastModifiedAt || lastModifiedAt;
+
         const scanId = req.params.id;
 
         const db = getDatabase();
@@ -122,15 +127,21 @@ router.patch('/:id', (req, res) => {
             return res.status(404).json({ error: 'Scan not found' });
         }
 
-        const now = new Date().toISOString();
+        // Use provided lastModifiedAt or generate new one
+        const now = lastModifiedAtValue || new Date().toISOString();
 
-        // Update scan
+        // Update scan and set SyncStatus back to Pending
         const update = db.prepare(`
             UPDATE ExamScans 
-            SET Grade = ?, Comments = ?, LastModifiedAt = ?
+            SET Grade = ?, Comments = ?, LastModifiedAt = ?, SyncStatus = 'Pending'
             WHERE Id = ?
         `);
-        update.run(grade !== undefined ? grade : scan.Grade, comments !== undefined ? comments : scan.Comments, now, scanId);
+        update.run(
+            gradeValue !== undefined ? gradeValue : scan.Grade,
+            commentsValue !== undefined ? commentsValue : scan.Comments,
+            now,
+            scanId
+        );
 
         // Create sync outbox entry for update
         createSyncOutboxEntry('ExamScan', scanId, 'Update');
@@ -144,6 +155,44 @@ router.patch('/:id', (req, res) => {
     } catch (error) {
         console.error('Error updating scan:', error);
         res.status(500).json({ error: 'Failed to update scan', details: error.message });
+    }
+});
+
+// DELETE /local/scans/:id - Delete scan
+router.delete('/:id', (req, res) => {
+    try {
+        const scanId = req.params.id;
+        const db = getDatabase();
+
+        const scan = db.prepare('SELECT * FROM ExamScans WHERE Id = ?').get(scanId);
+
+        if (!scan) {
+            return res.status(404).json({ error: 'Scan not found' });
+        }
+
+        // Delete image file if exists
+        const fs = require('fs');
+        const imagePath = path.join('/app/storage/scans', path.basename(scan.ImagePath));
+
+        if (fs.existsSync(imagePath)) {
+            fs.unlinkSync(imagePath);
+            console.log(`🗑️  Deleted image file: ${imagePath}`);
+        }
+
+        // Delete the scan from database
+        db.prepare('DELETE FROM ExamScans WHERE Id = ?').run(scanId);
+
+        // Create sync outbox entry for delete
+        createSyncOutboxEntry('ExamScan', scanId, 'Delete');
+
+        res.json({
+            success: true,
+            message: 'Scan deleted successfully',
+            deletedId: scanId
+        });
+    } catch (error) {
+        console.error('Error deleting scan:', error);
+        res.status(500).json({ error: 'Failed to delete scan', details: error.message });
     }
 });
 

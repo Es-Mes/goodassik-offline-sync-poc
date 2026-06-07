@@ -38,8 +38,40 @@ async function compressFile(filePath) {
     }
 }
 
-async function syncScanToCloud(scan, outboxEntry) {
+async function syncScanToCloud(scan, outboxEntry, retryCount = 0) {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAYS = [2000, 5000, 10000]; // 2s, 5s, 10s
+
     try {
+        // Check if this is a Delete action
+        if (outboxEntry.Action === 'Delete') {
+            console.log(`🗑️  Deleting scan ${outboxEntry.EntityId} from cloud`);
+            const response = await axios.delete(
+                `${CLOUD_API_URL}/api/sync/scans/${outboxEntry.EntityId}`,
+                { timeout: 10000 }
+            );
+            console.log(`✅ Delete confirmed from cloud`);
+            return response.data;
+        }
+
+        // Check if this is an Update action (only grade/comments changed)
+        if (outboxEntry.Action === 'Update') {
+            // For updates, only send grade and comments via PATCH
+            console.log(`📝 Updating scan ${scan.Id}: grade=${scan.Grade}, comments="${scan.Comments}"`);
+            const response = await axios.patch(
+                `${CLOUD_API_URL}/api/sync/scans/${scan.Id}`,
+                {
+                    grade: scan.Grade,
+                    comments: scan.Comments,
+                    lastModifiedAt: scan.LastModifiedAt
+                },
+                { timeout: 10000 }
+            );
+            console.log(`✅ Update response: grade=${response.data.scan?.grade}, comments="${response.data.scan?.comments}"`);
+            return response.data;
+        }
+
+        // For Create action, send the full scan with image
         // Get the full file path
         const filePath = path.join('/app/storage/scans', path.basename(scan.ImagePath));
 
@@ -81,14 +113,30 @@ async function syncScanToCloud(scan, outboxEntry) {
         return response.data;
 
     } catch (error) {
-        // Clean up compressed file on error
-        const compressedPath = `${path.join('/app/storage/scans', path.basename(scan.ImagePath))}.gz`;
-        if (fs.existsSync(compressedPath)) {
-            try {
-                fs.unlinkSync(compressedPath);
-            } catch (e) {
-                // Ignore cleanup errors
+        // Clean up compressed file on error (only for Create action)
+        if (outboxEntry.Action === 'Create') {
+            const compressedPath = `${path.join('/app/storage/scans', path.basename(scan.ImagePath))}.gz`;
+            if (fs.existsSync(compressedPath)) {
+                try {
+                    fs.unlinkSync(compressedPath);
+                } catch (e) {
+                    // Ignore cleanup errors
+                }
             }
+        }
+
+        // Check if this is a network error and we should retry
+        const isNetworkError = error.code === 'ECONNREFUSED' ||
+            error.code === 'ETIMEDOUT' ||
+            error.code === 'ENOTFOUND' ||
+            (error.response && error.response.status >= 500);
+
+        if (isNetworkError && retryCount < MAX_RETRIES) {
+            const delay = RETRY_DELAYS[retryCount];
+            console.log(`⚠️  Network error, retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})...`);
+
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return syncScanToCloud(scan, outboxEntry, retryCount + 1);
         }
 
         throw error;
@@ -123,9 +171,55 @@ async function completeCloudUpdate(updateId, status) {
     }
 }
 
+async function downloadScanFromCloud(scanId) {
+    try {
+        // Download the scan data including compressed image
+        const response = await axios.get(
+            `${CLOUD_API_URL}/api/sync/scans/${scanId}/download`,
+            {
+                responseType: 'arraybuffer',
+                timeout: 30000
+            }
+        );
+
+        // The response body is the compressed image
+        const compressedImage = Buffer.from(response.data);
+
+        // Decompress the image
+        const gunzip = promisify(zlib.gunzip);
+        const decompressedImage = await gunzip(compressedImage);
+
+        // Save to local storage
+        const imageDir = '/app/data/images';
+        if (!fs.existsSync(imageDir)) {
+            fs.mkdirSync(imageDir, { recursive: true });
+        }
+
+        const imagePath = path.join(imageDir, `${scanId}.jpg`);
+        fs.writeFileSync(imagePath, decompressedImage);
+
+        console.log(`📥 Downloaded and decompressed image for scan ${scanId}`);
+
+        // Return both the image path and scan metadata from headers
+        return {
+            imagePath,
+            studentId: response.headers['x-student-id'],
+            examId: response.headers['x-exam-id'],
+            grade: response.headers['x-grade'] ? parseInt(response.headers['x-grade']) : null,
+            comments: response.headers['x-comments'] || null,
+            createdAt: response.headers['x-created-at'],
+            lastModifiedAt: response.headers['x-last-modified-at']
+        };
+    } catch (error) {
+        console.error(`Error downloading scan ${scanId} from cloud:`, error.message);
+        throw error;
+    }
+}
+
 module.exports = {
     checkCloudConnection,
     syncScanToCloud,
     fetchCloudUpdates,
-    completeCloudUpdate
+    completeCloudUpdate,
+    downloadScanFromCloud
 };
