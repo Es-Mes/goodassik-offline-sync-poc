@@ -12,7 +12,8 @@ function App() {
     const [formData, setFormData] = useState({
         studentId: '',
         examId: '',
-        file: null
+        file: null,
+        uploadTo: 'local' // 'local' or 'cloud'
     });
     const [uploading, setUploading] = useState(false);
     const [message, setMessage] = useState('');
@@ -80,12 +81,18 @@ function App() {
             data.append('examId', formData.examId);
             data.append('image', formData.file);
 
-            await axios.post(`${LOCAL_API_URL}/local/scans`, data, {
+            // Choose API based on selection
+            const targetUrl = formData.uploadTo === 'cloud'
+                ? `${CLOUD_API_URL}/api/sync/scans/create`
+                : `${LOCAL_API_URL}/local/scans`;
+
+            await axios.post(targetUrl, data, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
 
-            setMessage('✅ הסריקה נשמרה בהצלחה!');
-            setFormData({ studentId: '', examId: '', file: null });
+            const destination = formData.uploadTo === 'cloud' ? 'ענן ☁️' : 'מקומי 💻';
+            setMessage(`✅ הסריקה נשמרה בהצלחה ב${destination}!`);
+            setFormData({ studentId: '', examId: '', file: null, uploadTo: 'local' });
             document.getElementById('fileInput').value = '';
             fetchAllData();
         } catch (error) {
@@ -121,6 +128,26 @@ function App() {
             fetchAllData();
         } catch (error) {
             setMessage('❌ שגיאה בעדכון: ' + error.message);
+        }
+    };
+
+    const handleDeleteClick = async (scanId, isLocal) => {
+        const location = isLocal ? 'מקומי 💻' : 'ענן ☁️';
+        if (!window.confirm(`האם אתה בטוח שברצונך למחוק את הסריקה מה${location}?\n\nהמחיקה תסתנכרן גם לצד השני.`)) {
+            return;
+        }
+
+        try {
+            const url = isLocal
+                ? `${LOCAL_API_URL}/local/scans/${scanId}`
+                : `${CLOUD_API_URL}/api/sync/scans/${scanId}`;
+
+            await axios.delete(url);
+
+            setMessage(`✅ נמחק בהצלחה מ${location}! הסריקה תימחק גם מהצד השני בקרוב.`);
+            fetchAllData();
+        } catch (error) {
+            setMessage('❌ שגיאה במחיקה: ' + error.message);
         }
     };
 
@@ -189,6 +216,33 @@ function App() {
                     <form onSubmit={handleSubmit}>
                         <div className="form-row">
                             <div className="form-group">
+                                <label>יעד העלאה:</label>
+                                <div className="radio-group">
+                                    <label>
+                                        <input
+                                            type="radio"
+                                            value="local"
+                                            checked={formData.uploadTo === 'local'}
+                                            onChange={(e) => setFormData({ ...formData, uploadTo: e.target.value })}
+                                            disabled={uploading}
+                                        />
+                                        💻 Local (יסתנכרן לענן)
+                                    </label>
+                                    <label>
+                                        <input
+                                            type="radio"
+                                            value="cloud"
+                                            checked={formData.uploadTo === 'cloud'}
+                                            onChange={(e) => setFormData({ ...formData, uploadTo: e.target.value })}
+                                            disabled={uploading}
+                                        />
+                                        ☁️ Cloud (יסתנכרן למקומי)
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="form-row">
+                            <div className="form-group">
                                 <label>מזהה תלמיד:</label>
                                 <input
                                     type="text"
@@ -220,7 +274,7 @@ function App() {
                             </div>
                         </div>
                         <button type="submit" disabled={uploading}>
-                            {uploading ? 'מעלה...' : 'שמור סריקה'}
+                            {uploading ? 'מעלה...' : `שמור ב${formData.uploadTo === 'cloud' ? 'ענן ☁️' : 'מקומי 💻'}`}
                         </button>
                     </form>
                     {message && <div className="message">{message}</div>}
@@ -263,12 +317,20 @@ function App() {
                                                     )}
                                                 </div>
                                             </div>
-                                            <button
-                                                className="edit-btn"
-                                                onClick={() => handleEditClick(scan, true)}
-                                            >
-                                                ✏️ ערוך
-                                            </button>
+                                            <div className="scan-actions">
+                                                <button
+                                                    className="edit-btn"
+                                                    onClick={() => handleEditClick(scan, true)}
+                                                >
+                                                    ✏️ ערוך
+                                                </button>
+                                                <button
+                                                    className="delete-btn"
+                                                    onClick={() => handleDeleteClick(scan.Id, true)}
+                                                >
+                                                    🗑️ מחק
+                                                </button>
+                                            </div>
                                             {hasConflict && <div className="conflict-badge">⚠️ קונפליקט</div>}
                                         </div>
                                     );
@@ -307,18 +369,26 @@ function App() {
                                                     )}
                                                 </div>
                                             </div>
-                                            <button
-                                                className="edit-btn"
-                                                onClick={() => handleEditClick({
-                                                    Id: scan.id,
-                                                    StudentId: scan.studentid,
-                                                    ExamId: scan.examid,
-                                                    Grade: scan.grade,
-                                                    Comments: scan.comments
-                                                }, false)}
-                                            >
-                                                ✏️ ערוך
-                                            </button>
+                                            <div className="scan-actions">
+                                                <button
+                                                    className="edit-btn"
+                                                    onClick={() => handleEditClick({
+                                                        Id: scan.id,
+                                                        StudentId: scan.studentid,
+                                                        ExamId: scan.examid,
+                                                        Grade: scan.grade,
+                                                        Comments: scan.comments
+                                                    }, false)}
+                                                >
+                                                    ✏️ ערוך
+                                                </button>
+                                                <button
+                                                    className="delete-btn"
+                                                    onClick={() => handleDeleteClick(scan.id, false)}
+                                                >
+                                                    🗑️ מחק
+                                                </button>
+                                            </div>
                                             {hasConflict && <div className="conflict-badge">⚠️ קונפליקט</div>}
                                         </div>
                                     );

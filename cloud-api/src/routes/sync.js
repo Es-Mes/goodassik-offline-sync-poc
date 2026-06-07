@@ -64,9 +64,9 @@ router.post('/scans/create', upload.single('image'), async (req, res) => {
 
         // Create CloudSyncOutbox entry for pull sync
         await pool.query(
-            `INSERT INTO CloudSyncOutbox (Id, EntityType, EntityId, Action, Status, StudentId, ExamId, ImagePath, LastModifiedAt, EntityCreatedAt, CreatedAt)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-            [uuidv4(), 'ExamScan', finalScanId, 'Create', 'Pending', studentId, examId, imagePath, now, finalCreatedAt, now]
+            `INSERT INTO CloudSyncOutbox (Id, EntityType, EntityId, Action, Status, LastModifiedAt, CreatedAt)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [uuidv4(), 'ExamScan', finalScanId, 'Create', 'Pending', now, now]
         );
 
         console.log(`✅ Created scan ${finalScanId} in cloud (queued for pull)`);
