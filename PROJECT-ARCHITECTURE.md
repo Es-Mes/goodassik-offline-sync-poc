@@ -8,12 +8,13 @@
 
 1. [סקירה כללית](#סקירה-כללית)
 2. [מבנה תיקיות מלא](#מבנה-תיקיות-מלא)
-3. [Packages - הסבר מפורט](#packages---הסבר-מפורט)
-4. [Redux Toolkit Architecture](#redux-toolkit-architecture)
-5. [Multi-Tenant Architecture](#multi-tenant-architecture)
-6. [Sync Architecture](#sync-architecture)
-7. [Docker Configuration](#docker-configuration)
-8. [Getting Started](#getting-started)
+3. [מבנה Frontend מומלץ (Modules)](#-מבנה-frontend-מומלץ-modules)
+4. [Packages - הסבר מפורט](#packages---הסבר-מפורט)
+5. [Redux Toolkit Architecture](#redux-toolkit-architecture)
+6. [Multi-Tenant Architecture](#multi-tenant-architecture)
+7. [Sync Architecture](#sync-architecture)
+8. [Docker Configuration](#docker-configuration)
+9. [Getting Started](#getting-started)
 
 ---
 
@@ -102,50 +103,60 @@ goodassik-production/
 │   │   │   └── index.html
 │   │   │
 │   │   ├── src/
-│   │   │   ├── main.tsx                 # 🔴 Entry point + Redux Provider
-│   │   │   ├── App.tsx                  # Main App component
+│   │   │   ├── main.tsx                 # Entry point
+│   │   │   ├── app/                     # Core app shell
+│   │   │   │   ├── App.tsx
+│   │   │   │   ├── router.tsx
+│   │   │   │   ├── store.ts
+│   │   │   │   └── providers/
+│   │   │   │       └── ReduxProvider.tsx
 │   │   │   │
-│   │   │   ├── pages/                   # Page components
+│   │   │   ├── modules/                 # Business modules
+│   │   │   │   ├── auth/
+│   │   │   │   │   ├── screens/
+│   │   │   │   │   ├── components/
+│   │   │   │   │   ├── services/
+│   │   │   │   │   ├── types.ts
+│   │   │   │   │   ├── hooks.ts
+│   │   │   │   │   └── index.ts
 │   │   │   │   ├── students/
-│   │   │   │   │   ├── index.tsx        # 🔴 Students page
-│   │   │   │   │   ├── StudentForm.tsx
-│   │   │   │   │   └── StudentDetails.tsx
+│   │   │   │   │   ├── screens/
+│   │   │   │   │   ├── components/
+│   │   │   │   │   ├── services/
+│   │   │   │   │   ├── utils/
+│   │   │   │   │   ├── types.ts
+│   │   │   │   │   ├── hooks.ts
+│   │   │   │   │   └── index.ts
 │   │   │   │   ├── classes/
-│   │   │   │   │   └── index.tsx
-│   │   │   │   ├── teachers/
-│   │   │   │   │   └── index.tsx
 │   │   │   │   ├── exams/
-│   │   │   │   │   ├── index.tsx
-│   │   │   │   │   └── ExamScanner.tsx
 │   │   │   │   ├── scans/
-│   │   │   │   │   └── index.tsx
-│   │   │   │   └── dashboard/
-│   │   │   │       └── index.tsx
+│   │   │   │   ├── operations/
+│   │   │   │   ├── reports/
+│   │   │   │   ├── users/
+│   │   │   │   └── settings/
 │   │   │   │
-│   │   │   ├── components/              # Reusable components
-│   │   │   │   ├── Layout/
-│   │   │   │   │   ├── AppLayout.tsx
-│   │   │   │   │   ├── Sidebar.tsx
-│   │   │   │   │   └── Header.tsx
-│   │   │   │   ├── common/
-│   │   │   │   │   ├── Button.tsx
-│   │   │   │   │   ├── Table.tsx
-│   │   │   │   │   ├── Modal.tsx
-│   │   │   │   │   └── Form.tsx
-│   │   │   │   ├── sync/
-│   │   │   │   │   ├── SyncIndicator.tsx
-│   │   │   │   │   ├── OfflineWarning.tsx
-│   │   │   │   │   └── ConflictResolver.tsx
-│   │   │   │   └── institution/
-│   │   │   │       └── InstitutionSwitcher.tsx
+│   │   │   ├── shared/                  # Shared web code
+│   │   │   │   ├── components/
+│   │   │   │   ├── services/
+│   │   │   │   │   └── baseApi.ts
+│   │   │   │   ├── store/
+│   │   │   │   │   └── slices/
+│   │   │   │   │       ├── authSlice.ts
+│   │   │   │   │       ├── uiSlice.ts
+│   │   │   │   │       └── institutionSlice.ts
+│   │   │   │   ├── hooks/
+│   │   │   │   ├── types/
+│   │   │   │   ├── utils/
+│   │   │   │   └── constants/
 │   │   │   │
-│   │   │   ├── styles/
-│   │   │   │   ├── global.css
-│   │   │   │   └── theme.ts
+│   │   │   ├── assets/
+│   │   │   │   ├── images/
+│   │   │   │   ├── icons/
+│   │   │   │   └── fonts/
 │   │   │   │
-│   │   │   └── config/
-│   │   │       ├── routes.tsx
-│   │   │       └── constants.ts
+│   │   │   └── styles/
+│   │   │       ├── global.css
+│   │   │       └── theme.ts
 │   │   │
 │   │   ├── package.json
 │   │   ├── tsconfig.json
@@ -273,6 +284,29 @@ goodassik-production/
 └── PROJECT-ARCHITECTURE.md              # 📘 This file
 
 ```
+
+---
+
+## 🧩 מבנה Frontend מומלץ (Modules)
+
+המבנה שהוצע ע"י ראש הצוות **מתאים מאוד** לפרויקט, והוא ממוקם בתוך [packages/web/src](packages/web/src).
+
+חשוב: זהו מבנה ל-Frontend בלבד. הארכיטקטורה המלאה עדיין כוללת גם [packages/local-api](packages/local-api), [packages/cloud-api](packages/cloud-api), ו-[packages/sync-worker](packages/sync-worker).
+
+### התאמה לצרכים שלנו
+
+- ✅ מתאים ל-Redux Toolkit + RTK Query
+- ✅ מתאים ל-Multi-tenant (institution context ב-store וב-services)
+- ✅ מתאים להרחבה עתידית לפי מודולים עסקיים
+- ✅ מתאים לסביבת Web מלאה (ללא Electron)
+
+### דגשים לשילוב נכון
+
+1. `modules/*/services` אחראי ללוגיקה עסקית של המודול.
+2. `shared/services/baseApi.ts` משמש בסיס אחיד לכל קריאות הרשת.
+3. `app/providers/ReduxProvider.tsx` מרכז את כל ה-providers הגלובליים.
+4. `shared/store/slices` מכיל state גלובלי בלבד; state מודולרי נשאר בתוך המודול.
+5. hooks ספציפיים למודול נשארים תחת `modules/<name>/hooks.ts`.
 
 ---
 
