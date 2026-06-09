@@ -574,7 +574,8 @@ services:
 ## 📝 רשימת טסטי אינטגרציה (24 Tests) - ✅ הושלם!
 
 ### 🧪 Integration Test 00: Basic Test (1 טסט)
-
+לינק לתוצאות הטסטים:
+https://docs.google.com/document/d/1WaE64ByYiSvK6eVMYlkpFa0mwz2seDYymuR-bOM9KuA/edit?tab=t.0
 #### סקירה:
 טסט בסיסי לוודא שהמערכת פועלת - יצירת סריקה והמתנה לסנכרון.
 
