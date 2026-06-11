@@ -1,6 +1,8 @@
-# 🏗️ Goodassik Production - Project Architecture
+﻿# 🏗️ Goodassik Production - Project Architecture
 
 > **מדריך מקיף למבנה הפרויקט, ארכיטקטורה, ו-Redux Toolkit implementation**
+> 
+> **⚠️ המסמך עודכן עם המבנה הסופי שאושר ע"י ראש הצוות (עודכן: יוני 2026)**
 
 ---
 
@@ -9,12 +11,14 @@
 1. [סקירה כללית](#סקירה-כללית)
 2. [מבנה תיקיות מלא](#מבנה-תיקיות-מלא)
 3. [מבנה Frontend מומלץ (Modules)](#-מבנה-frontend-מומלץ-modules)
-4. [Packages - הסבר מפורט](#packages---הסבר-מפורט)
-5. [Redux Toolkit Architecture](#redux-toolkit-architecture)
-6. [Multi-Tenant Architecture](#multi-tenant-architecture)
-7. [Sync Architecture](#sync-architecture)
-8. [Docker Configuration](#docker-configuration)
-9. [Getting Started](#getting-started)
+4. [מבנה Backend מומלץ (Modules)](#-מבנה-backend-מומלץ-modules)
+5. [Integration בין Frontend ל-Backend](#-integration-בין-frontend-ל-backend)
+6. [Packages - הסבר מפורט](#packages---הסבר-מפורט)
+7. [Redux Toolkit Architecture](#redux-toolkit-architecture)
+8. [Multi-Tenant Architecture](#multi-tenant-architecture)
+9. [Sync Architecture](#sync-architecture)
+10. [Docker Configuration](#docker-configuration)
+11. [Getting Started](#getting-started)
 
 ---
 
@@ -28,10 +32,25 @@
 
 - **Frontend**: React + TypeScript + Ant Design
 - **State Management**: Redux Toolkit + RTK Query
-- **Backend**: Node.js + Express
+- **Backend**: Node.js + Express + TypeScript
+- **ORM**: Prisma (מומלץ) או Drizzle/TypeORM
 - **Databases**: SQLite (Local) + PostgreSQL (Cloud)
 - **Sync**: Bidirectional sync worker עם conflict resolution
-- **Monorepo**: Yarn/npm workspaces
+- **Architecture**: Modular Monolith עם Layered Architecture
+
+### ארכיטקטורה:
+
+**Frontend:**
+- מבנה מודולרי לפי תחומים עסקיים (`modules/`)
+- Redux Toolkit לניהול State
+- RTK Query לקריאות API
+- Shared components ו-utilities
+
+**Backend:**
+- Layered Architecture: Routes → Controller → Service → Repository
+- מודולים עסקיים עצמאיים
+- Middleware משותף (auth, validation, errors)
+- Workers לתהליכי רקע
 
 ### מאפיינים מרכזיים:
 
@@ -40,7 +59,8 @@
 ✅ **Conflict Resolution** - Last-Write-Wins עם timestamps
 ✅ **Multi-Tenant** - תמיכה במספר מוסדות בו-זמנית
 ✅ **Type-Safe** - TypeScript בכל המערכת
-✅ **Tested** - 52 טסטים (28 Unit + 24 Integration)
+✅ **Modular** - קוד מאורגן לפי מודולים עסקיים
+✅ **Scalable** - ארכיטקטורה המאפשרת הרחבה קלה
 
 ---
 
@@ -289,9 +309,69 @@ goodassik-production/
 
 ## 🧩 מבנה Frontend מומלץ (Modules)
 
-המבנה שהוצע ע"י ראש הצוות **מתאים מאוד** לפרויקט, והוא ממוקם בתוך [packages/web/src](packages/web/src).
+המבנה הסופי שאושר ע"י ראש הצוות ממוקם ב-`src/` של הפרונטאנד.
 
-חשוב: זהו מבנה ל-Frontend בלבד. הארכיטקטורה המלאה עדיין כוללת גם [packages/local-api](packages/local-api), [packages/cloud-api](packages/cloud-api), ו-[packages/sync-worker](packages/sync-worker).
+### מבנה Frontend מלא
+
+```
+src/
+│
+├── app/                                  # קבצי הליבה של האפליקציה
+│   ├── App.tsx                          # נקודת הכניסה הראשית
+│   ├── router.tsx                       # הגדרת הניווט והמסכים
+│   ├── store.ts                         # חיבור Redux Store
+│   └── providers/                       # Providers גלובליים (Redux, Theme וכו')
+│       └── ReduxProvider.tsx
+│
+├── modules/                             # מודולים עסקיים במערכת
+│   ├── auth/                           # התחברות והרשאות
+│   │   ├── screens/                    # מסכים
+│   │   ├── components/                 # קומפוננטות פנימיות
+│   │   ├── services/                   # API ולוגיקה מול שרת
+│   │   ├── types.ts                    # טיפוסים ומודלים
+│   │   ├── hooks.ts                    # Hooks של המודול
+│   │   └── index.ts                    # יצוא מרכזי של המודול
+│   │
+│   ├── students/                       # ניהול תלמידים
+│   │   ├── screens/
+│   │   ├── components/
+│   │   ├── services/
+│   │   ├── utils/                      # פונקציות עזר למודול
+│   │   ├── types.ts
+│   │   ├── hooks.ts
+│   │   └── index.ts
+│   │
+│   ├── classes/                        # שכבות, כיתות והקבצות
+│   ├── exams/                          # מבחנים וגרסאות מבחן
+│   ├── scans/                          # סריקות ועיבוד תוצאות
+│   ├── operations/                     # מבצעים ופעילויות
+│   ├── reports/                        # דוחות וייצוא נתונים
+│   ├── users/                          # משתמשים והרשאות
+│   └── settings/                       # הגדרות מערכת
+│
+├── shared/                             # קוד משותף לכל המודולים
+│   ├── components/                     # קומפוננטות כלליות לשימוש חוזר
+│   ├── services/
+│   │   └── baseApi.ts                 # Client מרכזי לקריאות API
+│   ├── store/
+│   │   └── slices/                    # State גלובלי של המערכת
+│   │       ├── authSlice.ts           # משתמש מחובר והרשאות
+│   │       ├── uiSlice.ts             # מצב UI גלובלי
+│   │       └── institutionSlice.ts    # מוסד ושנת לימודים נוכחיים
+│   ├── hooks/                         # Hooks משותפים
+│   ├── types/                         # טיפוסים כלליים
+│   ├── utils/                         # פונקציות עזר כלליות
+│   └── constants/                     # קבועים, Enums והגדרות
+│
+├── assets/                            # קבצי מדיה
+│   ├── images/                        # תמונות
+│   ├── icons/                         # אייקונים
+│   └── fonts/                         # פונטים
+│
+└── styles/                            # עיצוב גלובלי של המערכת
+    ├── global.css                     # CSS כללי
+    └── theme.ts                       # הגדרות Theme וצבעים
+```
 
 ### התאמה לצרכים שלנו
 
@@ -310,7 +390,583 @@ goodassik-production/
 
 ---
 
-## 📦 Packages - הסבר מפורט
+## � מבנה Backend מומלץ (Modules)
+
+המבנה הסופי שאושר ע"י ראש הצוות ממוקם ב-`backend/src/` של הבקאנד.
+
+### מבנה Backend מלא
+
+```
+backend/
+│
+├── src/
+│   │
+│   ├── app.ts                           # הגדרת Express/Fastify
+│   ├── server.ts                        # הפעלת השרת
+│   │
+│   ├── config/                          # קונפיגורציה
+│   │   ├── env.ts                       # משתני סביבה
+│   │   ├── database.ts                  # הגדרות DB
+│   │   └── constants.ts                 # קבועים
+│   │
+│   ├── database/                        # DB בלבד
+│   │   ├── migrations/                  # Migration files
+│   │   ├── seed/                        # נתוני התחלה
+│   │   └── prisma/                      # Prisma schema (או drizzle/typeorm)
+│   │       └── schema.prisma
+│   │
+│   ├── modules/                         # מודולים עסקיים
+│   │   │
+│   │   ├── auth/
+│   │   │   ├── auth.routes.ts
+│   │   │   ├── auth.controller.ts
+│   │   │   ├── auth.service.ts
+│   │   │   ├── auth.middleware.ts
+│   │   │   ├── auth.dto.ts
+│   │   │   ├── auth.validation.ts
+│   │   │   ├── auth.types.ts
+│   │   │   └── index.ts
+│   │   │
+│   │   ├── institutions/
+│   │   ├── users/
+│   │   │
+│   │   ├── students/
+│   │   │   ├── students.routes.ts       # Express routes
+│   │   │   ├── students.controller.ts   # Request handlers
+│   │   │   ├── students.service.ts      # Business logic
+│   │   │   ├── students.repository.ts   # DB queries
+│   │   │   ├── students.dto.ts          # Data Transfer Objects
+│   │   │   ├── students.validation.ts   # Validation schemas
+│   │   │   ├── students.types.ts        # TypeScript types
+│   │   │   └── index.ts                 # יצוא מרכזי
+│   │   │
+│   │   ├── classes/
+│   │   ├── exams/
+│   │   ├── scans/
+│   │   ├── operations/
+│   │   ├── reports/
+│   │   └── settings/
+│   │
+│   ├── shared/                          # קוד משותף
+│   │   ├── middlewares/                 # Middleware functions
+│   │   │   ├── auth.middleware.ts
+│   │   │   ├── error.middleware.ts
+│   │   │   ├── validation.middleware.ts
+│   │   │   └── tenant.middleware.ts
+│   │   ├── errors/                      # Error handling
+│   │   │   ├── AppError.ts
+│   │   │   ├── HttpError.ts
+│   │   │   └── errorHandler.ts
+│   │   ├── validators/                  # Validation utilities
+│   │   │   └── common.validators.ts
+│   │   ├── services/                    # Shared services
+│   │   │   ├── logger.service.ts
+│   │   │   └── cache.service.ts
+│   │   ├── utils/                       # Helper functions
+│   │   │   ├── dateHelpers.ts
+│   │   │   ├── responseHelpers.ts
+│   │   │   └── pagination.ts
+│   │   ├── types/                       # Shared types
+│   │   │   ├── express.types.ts
+│   │   │   └── common.types.ts
+│   │   └── constants/                   # Shared constants
+│   │       ├── httpStatus.ts
+│   │       └── errorCodes.ts
+│   │
+│   ├── storage/                         # גישה לקבצים בלבד
+│   │   ├── storage.service.ts
+│   │   └── scan-file.service.ts
+│   │
+│   └── workers/                         # תהליכי רקע
+│       ├── sync.worker.ts
+│       ├── scan-processing.worker.ts
+│       └── reports.worker.ts
+│
+├── scripts/                             # סקריפטים ידניים
+│   ├── import-students.ts
+│   ├── migrate-old-data.ts
+│   └── seed-demo-data.ts
+│
+├── tests/
+│   ├── unit/                            # Unit tests
+│   │   ├── students/
+│   │   │   ├── students.service.test.ts
+│   │   │   └── students.repository.test.ts
+│   │   └── auth/
+│   │       └── auth.service.test.ts
+│   └── integration/                     # Integration tests
+│       ├── students.integration.test.ts
+│       └── auth.integration.test.ts
+│
+├── .env
+├── .env.example
+├── package.json
+├── tsconfig.json
+├── Dockerfile
+└── docker-compose.yml
+```
+
+### שכבות המודול (Layered Architecture)
+
+כל מודול עסקי עוקב אחר הארכיטקטורה הבאה:
+
+#### 1. **Routes Layer** (students.routes.ts)
+- הגדרת נתיבי HTTP
+- חיבור לController
+- Middleware של הנתיב
+
+```typescript
+import { Router } from 'express';
+import { StudentsController } from './students.controller';
+import { authMiddleware } from '../../shared/middlewares/auth.middleware';
+import { validateDto } from '../../shared/middlewares/validation.middleware';
+import { CreateStudentDto, UpdateStudentDto } from './students.dto';
+
+const router = Router();
+const controller = new StudentsController();
+
+router.get('/', authMiddleware, controller.getAll);
+router.get('/:id', authMiddleware, controller.getById);
+router.post('/', authMiddleware, validateDto(CreateStudentDto), controller.create);
+router.patch('/:id', authMiddleware, validateDto(UpdateStudentDto), controller.update);
+router.delete('/:id', authMiddleware, controller.delete);
+
+export default router;
+```
+
+#### 2. **Controller Layer** (students.controller.ts)
+- מטפל ב-HTTP requests/responses
+- קורא ל-Service layer
+- טיפול ב-errors
+
+```typescript
+import { Request, Response, NextFunction } from 'express';
+import { StudentsService } from './students.service';
+import { CreateStudentDto, UpdateStudentDto } from './students.dto';
+
+export class StudentsController {
+  private service: StudentsService;
+
+  constructor() {
+    this.service = new StudentsService();
+  }
+
+  getAll = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const institutionId = req.user.institutionId;
+      const students = await this.service.getAll(institutionId);
+      res.json({ success: true, data: students });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  create = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const dto: CreateStudentDto = req.body;
+      const student = await this.service.create(dto);
+      res.status(201).json({ success: true, data: student });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // ... יתר המתודות
+}
+```
+
+#### 3. **Service Layer** (students.service.ts)
+- לוגיקה עסקית
+- קורא ל-Repository
+- טיפול ב-transactions
+
+```typescript
+import { StudentsRepository } from './students.repository';
+import { CreateStudentDto, UpdateStudentDto } from './students.dto';
+import { Student } from './students.types';
+import { AppError } from '../../shared/errors/AppError';
+
+export class StudentsService {
+  private repository: StudentsRepository;
+
+  constructor() {
+    this.repository = new StudentsRepository();
+  }
+
+  async getAll(institutionId: number): Promise<Student[]> {
+    return this.repository.findAll(institutionId);
+  }
+
+  async create(dto: CreateStudentDto): Promise<Student> {
+    // Business logic validations
+    const existing = await this.repository.findByIdNumber(dto.idNumber);
+    if (existing) {
+      throw new AppError('Student with this ID number already exists', 400);
+    }
+
+    // Create student
+    const student = await this.repository.create(dto);
+
+    // Trigger sync (if needed)
+    await this.triggerSync(student.id);
+
+    return student;
+  }
+
+  private async triggerSync(studentId: number): Promise<void> {
+    // Add to sync queue
+  }
+
+  // ... יתר המתודות
+}
+```
+
+#### 4. **Repository Layer** (students.repository.ts)
+- גישה ישירה ל-DB
+- Queries בלבד
+- אין לוגיקה עסקית
+
+```typescript
+import { prisma } from '../../database/prisma';
+import { Student } from './students.types';
+import { CreateStudentDto, UpdateStudentDto } from './students.dto';
+
+export class StudentsRepository {
+  async findAll(institutionId: number): Promise<Student[]> {
+    return prisma.student.findMany({
+      where: { institutionId },
+      orderBy: { lastName: 'asc' },
+    });
+  }
+
+  async findById(id: number): Promise<Student | null> {
+    return prisma.student.findUnique({
+      where: { id },
+    });
+  }
+
+  async findByIdNumber(idNumber: string): Promise<Student | null> {
+    return prisma.student.findFirst({
+      where: { idNumber },
+    });
+  }
+
+  async create(dto: CreateStudentDto): Promise<Student> {
+    return prisma.student.create({
+      data: {
+        ...dto,
+        createdAt: new Date(),
+        lastModifiedAt: new Date(),
+      },
+    });
+  }
+
+  async update(id: number, dto: UpdateStudentDto): Promise<Student> {
+    return prisma.student.update({
+      where: { id },
+      data: {
+        ...dto,
+        lastModifiedAt: new Date(),
+      },
+    });
+  }
+
+  async delete(id: number): Promise<void> {
+    await prisma.student.delete({
+      where: { id },
+    });
+  }
+}
+```
+
+#### 5. **DTO Layer** (students.dto.ts)
+- Data Transfer Objects
+- Validation schemas
+
+```typescript
+import { IsString, IsNumber, IsOptional, IsEmail, Length } from 'class-validator';
+
+export class CreateStudentDto {
+  @IsNumber()
+  institutionId: number;
+
+  @IsString()
+  @Length(2, 50)
+  firstName: string;
+
+  @IsString()
+  @Length(2, 50)
+  lastName: string;
+
+  @IsString()
+  @Length(9, 9)
+  idNumber: string;
+
+  @IsNumber()
+  classId: number;
+
+  @IsString()
+  @IsOptional()
+  dateOfBirth?: string;
+
+  @IsEmail()
+  @IsOptional()
+  email?: string;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+}
+
+export class UpdateStudentDto {
+  @IsString()
+  @IsOptional()
+  firstName?: string;
+
+  @IsString()
+  @IsOptional()
+  lastName?: string;
+
+  @IsNumber()
+  @IsOptional()
+  classId?: number;
+
+  @IsEmail()
+  @IsOptional()
+  email?: string;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+}
+```
+
+### התאמה לצרכים שלנו
+
+- ✅ מתאים ל-REST API עם Express/Fastify
+- ✅ הפרדה ברורה של שכבות (Separation of Concerns)
+- ✅ קל לבדיקה (Unit tests לכל שכבה)
+- ✅ מתאים ל-Multi-tenant
+- ✅ ניתן להרחבה בקלות
+
+### דגשים לשילוב נכון
+
+1. **Routes** - רק הגדרת נתיבים, לא לוגיקה
+2. **Controller** - רק טיפול ב-HTTP, לא לוגיקה עסקית
+3. **Service** - כל הלוגיקה העסקית כאן
+4. **Repository** - רק queries, לא החלטות עסקיות
+5. **DTO** - Validation וטיפוסים בלבד
+
+---
+
+## 🔗 Integration בין Frontend ל-Backend
+
+### סקירה כללית
+
+הפרונטאנד והבקאנד מתקשרים דרך REST API עם Type Safety מלא באמצעות TypeScript משותף. החלק הזה מסביר את כל ה-flow מהקומפוננטה בפרונטאנד ועד למסד הנתונים בבקאנד.
+
+---
+
+### 1️⃣ Flow מלא: יצירת תלמיד חדש
+
+נעקוב אחר flow שלם של יצירת תלמיד חדש:
+
+**Frontend Component (React)**
+
+```typescript
+// src/modules/students/screens/StudentsListScreen.tsx
+import { useAddStudentMutation } from '../services/studentsApi';
+
+export const StudentsListScreen: React.FC = () => {
+  const [addStudent, { isLoading }] = useAddStudentMutation();
+
+  const handleSubmit = async (values) => {
+    try {
+      await addStudent({
+        firstName: values.firstName,
+        lastName: values.lastName,
+        idNumber: values.idNumber,
+      }).unwrap();
+      message.success('תלמיד נוסף בהצלחה!');
+    } catch (error: any) {
+      message.error(error.data?.message || 'שגיאה');
+    }
+  };
+};
+```
+
+**Backend Flow:** Routes → Controller → Service → Repository → Database
+
+---
+
+### 2️⃣ Type Safety - שיתוף טיפוסים
+
+#### אסטרטגיה מומלצת: Shared Package
+
+```
+project/
+├── packages/
+│   ├── shared-types/              # חבילה משותפת
+│   │   ├── entities/
+│   │   │   ├── Student.ts
+│   │   │   ├── Class.ts
+│   │   │   └── Exam.ts
+│   │   └── dtos/
+│   │       ├── students.dto.ts
+│   │       └── classes.dto.ts
+│   ├── frontend/                  # מייבא shared-types
+│   └── backend/                   # מייבא shared-types
+```
+
+**שימוש:**
+```typescript
+// Frontend & Backend
+import { Student, CreateStudentDto } from '@goodassik/shared-types';
+```
+
+---
+
+### 3️⃣ API Response Format (תקן אחיד)
+
+**Success Response:**
+```json
+{
+  "success": true,
+  "data": { "id": 1, "firstName": "ישראל" },
+  "message": "Student created successfully",
+  "timestamp": "2026-06-10T10:30:00.000Z"
+}
+```
+
+**Error Response:**
+```json
+{
+  "success": false,
+  "message": "תלמיד עם תעודת זהות זו כבר קיים",
+  "errorCode": "STUDENT_ALREADY_EXISTS",
+  "timestamp": "2026-06-10T10:30:00.000Z"
+}
+```
+
+---
+
+### 4️⃣ Authentication & Multi-Tenant
+
+#### Frontend: הוספת Headers אוטומטית
+
+```typescript
+// src/shared/services/baseApi.ts
+export const baseApi = createApi({
+  baseQuery: fetchBaseQuery({
+    prepareHeaders: (headers, { getState }) => {
+      const state = getState() as RootState;
+      
+      // JWT Token
+      if (state.auth.token) {
+        headers.set('Authorization', `Bearer ${state.auth.token}`);
+      }
+      
+      // Institution ID (Multi-Tenant)
+      if (state.institution.currentId) {
+        headers.set('X-Institution-Id', state.institution.currentId.toString());
+      }
+      
+      return headers;
+    },
+  }),
+});
+```
+
+#### Backend: Middleware Validation
+
+```typescript
+// auth.middleware.ts
+export const authMiddleware = async (req, res, next) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) throw new AppError('נדרש אימות', 401);
+  
+  const decoded = jwt.verify(token, process.env.JWT_SECRET!);
+  req.user = decoded;
+  next();
+};
+
+// tenant.middleware.ts
+export const tenantMiddleware = (req, res, next) => {
+  const institutionId = req.headers['x-institution-id'];
+  if (!institutionId) throw new AppError('Institution ID required', 400);
+  
+  req.institutionId = parseInt(institutionId);
+  next();
+};
+```
+
+---
+
+### 5️⃣ Error Handling
+
+#### Backend Error Structure
+
+```typescript
+// shared/errors/AppError.ts
+export class AppError extends Error {
+  constructor(
+    public message: string,
+    public statusCode: number = 500,
+    public errorCode?: string
+  ) {
+    super(message);
+  }
+}
+
+// shared/middlewares/error.middleware.ts
+export const errorMiddleware = (err, req, res, next) => {
+  if (err instanceof AppError) {
+    return res.status(err.statusCode).json({
+      success: false,
+      message: err.message,
+      errorCode: err.errorCode,
+      timestamp: new Date().toISOString(),
+    });
+  }
+  
+  res.status(500).json({
+    success: false,
+    message: 'שגיאת שרת פנימית',
+  });
+};
+```
+
+#### Frontend Error Handling
+
+```typescript
+try {
+  await addStudent(data).unwrap();
+} catch (err: any) {
+  // err.data.message - הודעה מהשרת
+  // err.data.errorCode - קוד השגיאה
+  message.error(err.data?.message || 'שגיאה לא צפויה');
+}
+```
+
+---
+
+### 📝 Best Practices
+
+1. **Type Safety** - טיפוסים משותפים בין Frontend ל-Backend
+2. **Error Handling** - פורמט תשובה אחיד לכל ה-API
+3. **Authentication** - JWT Tokens עם refresh mechanism
+4. **Multi-Tenant** - InstitutionId אוטומטי בכל request
+5. **Validation** - פעמיים: Frontend (UX) + Backend (Security)
+6. **Response Format** - תקן JSON אחיד
+7. **Caching** - RTK Query מטפל אוטומטית
+8. **Loading States** - מצבים אוטומטיים מ-RTK Query
+9. **Optimistic Updates** - עדכון UI לפני תשובת השרת
+10. **Error Recovery** - Retry mechanism אוטומטי
+
+---
+
+
+## �📦 Packages - הסבר מפורט
 
 ### 1️⃣ packages/shared
 
@@ -1478,3 +2134,5 @@ npm test
 **🎉 Good Luck with Goodassik Production! 🚀**
 
 *Last updated: June 2026*
+
+
